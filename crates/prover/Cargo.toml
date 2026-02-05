@@ -1,0 +1,12 @@
+[package]
+name = "financoor-prover"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+financoor-core = { path = "../core" }
+sp1-sdk = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
