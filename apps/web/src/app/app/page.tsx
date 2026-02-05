@@ -1,6 +1,8 @@
 "use client";
 
 import { FloatingDock } from "@/components/ui/floating-dock";
+import { SessionManager } from "@/components/session-manager";
+import { useSession } from "@/lib/session";
 import {
   IconHome,
   IconApps,
@@ -27,6 +29,8 @@ const dockItems = [
 ];
 
 export default function AppPage() {
+  const { session, isLoaded } = useSession();
+
   return (
     <div className="min-h-screen w-full bg-black/[0.96] antialiased relative">
       {/* Floating dock navigation */}
@@ -35,8 +39,8 @@ export default function AppPage() {
       </div>
 
       {/* Main content */}
-      <div className="max-w-4xl mx-auto px-4 py-16">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-4xl mx-auto px-4 py-16 pb-32">
+        <div className="flex items-center justify-between mb-4">
           <h1 className="text-3xl font-bold text-white">Financoor App</h1>
           <Link
             href="/"
@@ -44,6 +48,19 @@ export default function AppPage() {
           >
             Back to Home
           </Link>
+        </div>
+
+        {/* Session manager */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="text-xs text-neutral-500">
+            {isLoaded && (
+              <>
+                {session.wallets.length} wallet{session.wallets.length !== 1 ? "s" : ""} ·{" "}
+                {session.ledger.length} transaction{session.ledger.length !== 1 ? "s" : ""}
+              </>
+            )}
+          </div>
+          <SessionManager />
         </div>
 
         {/* Placeholder for wizard - will be implemented in Chunk 2 */}
