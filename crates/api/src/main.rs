@@ -2,13 +2,26 @@
 //!
 //! Axum-based backend for wallet data fetching, categorization, and proof generation.
 
+mod alchemy;
+
+use std::sync::Arc;
+
 use axum::{
-    routing::get,
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use financoor_core::LedgerRow;
+use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use crate::alchemy::AlchemyClient;
+
+struct AppState {
+    alchemy: AlchemyClient,
+}
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -23,8 +36,80 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
+#[derive(Deserialize)]
+struct TransfersRequest {
+    wallets: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct TransfersResponse {
+    ledger: Vec<LedgerRow>,
+    wallet_counts: Vec<WalletCount>,
+}
+
+#[derive(Serialize)]
+struct WalletCount {
+    wallet: String,
+    count: usize,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
+
+async fn get_transfers(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<TransfersRequest>,
+) -> Result<Json<TransfersResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if payload.wallets.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "No wallets provided".to_string(),
+            }),
+        ));
+    }
+
+    let mut all_ledger: Vec<LedgerRow> = Vec::new();
+    let mut wallet_counts: Vec<WalletCount> = Vec::new();
+
+    for wallet in &payload.wallets {
+        match state.alchemy.get_transfers(wallet).await {
+            Ok(ledger) => {
+                let count = ledger.len();
+                wallet_counts.push(WalletCount {
+                    wallet: wallet.clone(),
+                    count,
+                });
+                all_ledger.extend(ledger);
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch transfers for {}: {}", wallet, e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Failed to fetch transfers for {}: {}", wallet, e),
+                    }),
+                ));
+            }
+        }
+    }
+
+    // Sort all ledger entries by block time
+    all_ledger.sort_by(|a, b| a.block_time.cmp(&b.block_time));
+
+    Ok(Json(TransfersResponse {
+        ledger: all_ledger,
+        wallet_counts,
+    }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load .env file (ignore if not found)
+    dotenvy::dotenv().ok();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -33,6 +118,17 @@ async fn main() -> anyhow::Result<()> {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    // Get Alchemy API key from environment
+    let alchemy_api_key = std::env::var("ALCHEMY_API_KEY")
+        .unwrap_or_else(|_| {
+            tracing::warn!("ALCHEMY_API_KEY not set, using demo key (rate limited)");
+            "demo".to_string()
+        });
+
+    let state = Arc::new(AppState {
+        alchemy: AlchemyClient::new(alchemy_api_key),
+    });
 
     // CORS configuration
     let cors = CorsLayer::new()
@@ -43,7 +139,9 @@ async fn main() -> anyhow::Result<()> {
     // Build router
     let app = Router::new()
         .route("/health", get(health))
-        .layer(cors);
+        .route("/transfers", post(get_transfers))
+        .layer(cors)
+        .with_state(state);
 
     // Start server
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
