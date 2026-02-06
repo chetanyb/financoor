@@ -64,9 +64,14 @@ export interface TaxSummary {
 }
 
 export interface ProofArtifacts {
+  ledgerCommitment: string; // hex encoded SHA256
+  totalTaxPaisa: number;
+  userTypeCode: number;
+  used44ada: boolean;
   proof: string; // base64 encoded
   publicValues: string; // base64 encoded
-  verificationKey?: string; // base64 encoded
+  vkHash: string; // verification key hash
+  note: string;
   generatedAt: number;
 }
 

@@ -102,3 +102,40 @@ export async function calculateTax(request: TaxRequest): Promise<TaxResponse> {
 
   return response.json();
 }
+
+// Proof generation types
+export interface ProofRequest {
+  user_type: string;
+  ledger: ApiLedgerRow[];
+  prices: PriceEntry[];
+  usd_inr_rate: string;
+  use_44ada: boolean;
+}
+
+export interface ProofResponse {
+  ledger_commitment: string;
+  total_tax_paisa: number;
+  user_type_code: number;
+  used_44ada: boolean;
+  proof: string;
+  public_values: string;
+  vk_hash: string;
+  note: string;
+}
+
+export async function generateProof(request: ProofRequest): Promise<ProofResponse> {
+  const response = await fetch(`${API_BASE}/proofs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const error: ApiError = await response.json();
+    throw new Error(error.error || "Failed to generate proof");
+  }
+
+  return response.json();
+}

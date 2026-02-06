@@ -62,9 +62,18 @@ pub struct PriceEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wallet {
+    pub id: String,
+    pub address: String,
+    pub label: Option<String>,
+    pub group_id: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxInput {
     pub user_type: UserType,
-    pub wallets: Vec<String>,
+    pub wallets: Vec<Wallet>,
     pub ledger: Vec<LedgerRow>,
     pub prices: Vec<PriceEntry>,
     pub usd_inr_rate: String,
@@ -79,6 +88,124 @@ sol! {
         uint8 userType;
         bool used44ada;
     }
+}
+
+// ============================================================================
+// TAX CALCULATION (duplicated from core for zkVM compatibility)
+// ============================================================================
+
+/// New regime tax slabs for AY 2026-27 (Individual/HUF)
+const NEW_REGIME_SLABS: [(u64, u64, u64); 7] = [
+    (0, 400_000, 0),           // Up to 4L: 0%
+    (400_001, 800_000, 5),     // 4L-8L: 5%
+    (800_001, 1_200_000, 10),  // 8L-12L: 10%
+    (1_200_001, 1_600_000, 15), // 12L-16L: 15%
+    (1_600_001, 2_000_000, 20), // 16L-20L: 20%
+    (2_000_001, 2_400_000, 25), // 20L-24L: 25%
+    (2_400_001, u64::MAX, 30),  // Above 24L: 30%
+];
+
+fn calculate_slab_tax(taxable_income: u64) -> u64 {
+    let mut tax: u64 = 0;
+
+    for (lower, upper, rate) in NEW_REGIME_SLABS.iter() {
+        if taxable_income > *lower {
+            let amount_in_slab = if taxable_income >= *upper {
+                upper - lower
+            } else {
+                taxable_income.saturating_sub(*lower)
+            };
+            tax += (amount_in_slab * rate) / 100;
+        }
+
+        if taxable_income <= *upper {
+            break;
+        }
+    }
+
+    tax
+}
+
+fn parse_amount(s: &str) -> u64 {
+    // Parse as float then convert to paisa (x100)
+    let f: f64 = s.parse().unwrap_or(0.0);
+    (f * 100.0) as u64
+}
+
+fn amount_to_inr_paisa(
+    amount: &str,
+    asset: &str,
+    prices: &[PriceEntry],
+    usd_inr_rate: u64, // in paisa per USD
+) -> u64 {
+    let amount_val = parse_amount(amount);
+
+    // Find USD price for this asset (in cents)
+    let usd_price_cents: u64 = prices
+        .iter()
+        .find(|p| p.asset == asset)
+        .map(|p| parse_amount(&p.usd_price))
+        .unwrap_or(100); // Default $1.00
+
+    // amount * usd_price * usd_inr / (100 * 100) to normalize
+    (amount_val * usd_price_cents * usd_inr_rate) / (100 * 100 * 100)
+}
+
+fn calculate_tax(input: &TaxInput) -> u64 {
+    let usd_inr_rate = parse_amount(&input.usd_inr_rate);
+
+    // Sum up amounts by category (all in paisa)
+    let mut professional_income: u64 = 0;
+    let mut vda_gains: u64 = 0;
+
+    for row in &input.ledger {
+        let inr_value = amount_to_inr_paisa(&row.amount, &row.asset, &input.prices, usd_inr_rate);
+
+        match row.category {
+            Category::Income => {
+                if matches!(row.direction, Direction::In) {
+                    professional_income += inr_value;
+                }
+            }
+            Category::Gains => {
+                if matches!(row.direction, Direction::In) {
+                    vda_gains += inr_value;
+                }
+            }
+            // Losses, fees, internal, unknown don't add to taxable in MVP
+            _ => {}
+        }
+    }
+
+    // Apply 44ADA if enabled (Individual only)
+    let taxable_professional_income = if input.use_44ada && matches!(input.user_type, UserType::Individual) {
+        professional_income / 2 // 50% presumptive
+    } else {
+        professional_income
+    };
+
+    // Calculate professional income tax
+    let professional_tax = match input.user_type {
+        UserType::Individual | UserType::Huf => {
+            calculate_slab_tax(taxable_professional_income / 100) * 100 // Convert to/from INR
+        }
+        UserType::Corporate => {
+            // 22% + 10% surcharge = 24.2%
+            (taxable_professional_income * 242) / 1000
+        }
+    };
+
+    // VDA tax at 30%
+    let vda_tax = (vda_gains * 30) / 100;
+
+    // Total before cess
+    let total_before_cess = professional_tax + vda_tax;
+
+    // Health & Education Cess at 4%
+    let cess = (total_before_cess * 4) / 100;
+
+    // Total tax payable (in paisa)
+    total_before_cess + cess
 }
 
 /// Simple SHA256 hash using SP1 syscalls
@@ -166,9 +293,8 @@ pub fn main() {
     let ledger_json = serde_json::to_string(&input.ledger).unwrap();
     let ledger_commitment = sha256_hash(ledger_json.as_bytes());
 
-    // MVP: Trivial tax calculation (real logic in Chunk 7)
-    // For now, just count ledger entries * 100 paisa as placeholder
-    let total_tax_paisa: u64 = (input.ledger.len() as u64) * 100_00;
+    // Calculate tax using the same logic as the core crate
+    let total_tax_paisa = calculate_tax(&input);
 
     let user_type_code = match input.user_type {
         UserType::Individual => 0u8,

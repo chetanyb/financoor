@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "@/lib/session";
-import { calculateTax, type TaxBreakdown, type ApiLedgerRow, type PriceEntry } from "@/lib/api";
+import { calculateTax, generateProof, type TaxBreakdown, type ApiLedgerRow, type PriceEntry } from "@/lib/api";
 import {
   IconCalculator,
   IconChevronDown,
@@ -11,6 +11,9 @@ import {
   IconAlertCircle,
   IconInfoCircle,
   IconCurrencyRupee,
+  IconShieldCheck,
+  IconCopy,
+  IconCheck,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -66,11 +69,14 @@ function BreakdownRow({ label, value, highlight, sublabel, negative }: Breakdown
 }
 
 export function TaxPanel() {
-  const { session } = useSession();
+  const { session, setProofArtifacts } = useSession();
   const [breakdown, setBreakdown] = useState<TaxBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
+  const [proofLoading, setProofLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [showProofDetails, setShowProofDetails] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const handleCalculate = async () => {
     if (!session.userType) {
@@ -129,6 +135,78 @@ export function TaxPanel() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const buildApiRequest = () => {
+    // Convert session ledger to API format
+    const apiLedger: ApiLedgerRow[] = session.ledger.map((row) => {
+      const override = session.categoryOverrides.find((o) => o.ledgerRowId === row.id);
+      const category = override?.category ?? row.category;
+      return {
+        chain_id: row.chainId,
+        owner_wallet: row.ownerWallet,
+        tx_hash: row.txHash,
+        block_time: row.blockTime,
+        asset: row.asset,
+        amount: row.amount,
+        decimals: row.decimals,
+        direction: row.direction,
+        counterparty: row.counterparty ?? null,
+        category,
+        confidence: row.confidence,
+        user_override: override !== undefined,
+      };
+    });
+
+    const apiPrices: PriceEntry[] = session.prices.map((p) => ({
+      asset: p.asset,
+      usd_price: p.usdPrice,
+    }));
+
+    return {
+      user_type: session.userType!,
+      ledger: apiLedger,
+      prices: apiPrices,
+      usd_inr_rate: session.usdInrRate,
+      use_44ada: session.use44ada,
+    };
+  };
+
+  const handleGenerateProof = async () => {
+    if (!breakdown) {
+      setError("Please calculate tax first");
+      return;
+    }
+
+    setProofLoading(true);
+    setError(null);
+
+    try {
+      const request = buildApiRequest();
+      const response = await generateProof(request);
+
+      setProofArtifacts({
+        ledgerCommitment: response.ledger_commitment,
+        totalTaxPaisa: response.total_tax_paisa,
+        userTypeCode: response.user_type_code,
+        used44ada: response.used_44ada,
+        proof: response.proof,
+        publicValues: response.public_values,
+        vkHash: response.vk_hash,
+        note: response.note,
+        generatedAt: Date.now(),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate proof");
+    } finally {
+      setProofLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const hasUnreviewedTransactions = session.ledger.some(
@@ -286,19 +364,146 @@ export function TaxPanel() {
             )}
           </div>
 
-          {/* Recalculate button */}
-          <button
-            onClick={handleCalculate}
-            disabled={loading}
-            className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <IconLoader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <IconCalculator className="w-4 h-4" />
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCalculate}
+              disabled={loading}
+              className="flex-1 py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <IconLoader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <IconCalculator className="w-4 h-4" />
+              )}
+              Recalculate
+            </button>
+
+            {!session.proofArtifacts && (
+              <button
+                onClick={handleGenerateProof}
+                disabled={proofLoading}
+                className="flex-1 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
+              >
+                {proofLoading ? (
+                  <>
+                    <IconLoader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <IconShieldCheck className="w-4 h-4" />
+                    Generate ZK Proof
+                  </>
+                )}
+              </button>
             )}
-            Recalculate
-          </button>
+          </div>
+
+          {/* Proof artifacts */}
+          {session.proofArtifacts && (
+            <div className="border border-emerald-800/50 rounded-lg overflow-hidden bg-emerald-950/20">
+              <button
+                onClick={() => setShowProofDetails(!showProofDetails)}
+                className="w-full p-3 flex items-center justify-between text-sm text-emerald-300 hover:bg-emerald-900/20 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <IconShieldCheck className="w-4 h-4" />
+                  ZK Proof Generated
+                </span>
+                {showProofDetails ? (
+                  <IconChevronUp className="w-4 h-4" />
+                ) : (
+                  <IconChevronDown className="w-4 h-4" />
+                )}
+              </button>
+
+              {showProofDetails && (
+                <div className="p-4 border-t border-emerald-800/50 space-y-3">
+                  {/* Ledger Commitment */}
+                  <div>
+                    <p className="text-xs text-neutral-500 mb-1">Ledger Commitment (SHA256)</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-neutral-300 bg-neutral-800/50 px-2 py-1 rounded font-mono truncate flex-1">
+                        0x{session.proofArtifacts.ledgerCommitment.slice(0, 16)}...
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(session.proofArtifacts!.ledgerCommitment, "commitment")}
+                        className="p-1 hover:bg-neutral-700 rounded transition-colors"
+                      >
+                        {copied === "commitment" ? (
+                          <IconCheck className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <IconCopy className="w-3 h-3 text-neutral-400" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* VK Hash */}
+                  <div>
+                    <p className="text-xs text-neutral-500 mb-1">Verification Key Hash</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-neutral-300 bg-neutral-800/50 px-2 py-1 rounded font-mono truncate flex-1">
+                        {session.proofArtifacts.vkHash.slice(0, 22)}...
+                      </code>
+                      <button
+                        onClick={() => copyToClipboard(session.proofArtifacts!.vkHash, "vkHash")}
+                        className="p-1 hover:bg-neutral-700 rounded transition-colors"
+                      >
+                        {copied === "vkHash" ? (
+                          <IconCheck className="w-3 h-3 text-emerald-400" />
+                        ) : (
+                          <IconCopy className="w-3 h-3 text-neutral-400" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tax Details */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-neutral-500 mb-1">Tax (paisa)</p>
+                      <p className="text-sm font-mono text-neutral-300">
+                        {session.proofArtifacts.totalTaxPaisa.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500 mb-1">User Type</p>
+                      <p className="text-sm text-neutral-300">
+                        {["Individual", "HUF", "Corporate"][session.proofArtifacts.userTypeCode]}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Note */}
+                  <div className="p-2 rounded bg-amber-950/30 border border-amber-800/30">
+                    <p className="text-xs text-amber-400/80">
+                      {session.proofArtifacts.note}
+                    </p>
+                  </div>
+
+                  {/* Copy full proof */}
+                  <button
+                    onClick={() => copyToClipboard(session.proofArtifacts!.proof, "proof")}
+                    className="w-full py-2 rounded text-xs text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {copied === "proof" ? (
+                      <>
+                        <IconCheck className="w-3 h-3 text-emerald-400" />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <IconCopy className="w-3 h-3" />
+                        Copy Full Proof (Base64)
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Disclaimer */}
           <div className="p-3 rounded-lg bg-neutral-800/30 border border-neutral-700/50">

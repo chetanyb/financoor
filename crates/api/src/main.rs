@@ -13,6 +13,7 @@ use axum::{
     Json, Router,
 };
 use financoor_core::{calculate_tax, categorize_ledger, LedgerRow, PriceEntry, TaxBreakdown, TaxInput, UserType};
+use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -154,6 +155,125 @@ async fn calculate_tax_endpoint(
     Ok(Json(TaxResponse { breakdown }))
 }
 
+// ============================================================================
+// PROOF GENERATION
+// ============================================================================
+
+#[derive(Deserialize)]
+struct ProofRequest {
+    user_type: String,
+    ledger: Vec<LedgerRow>,
+    prices: Vec<PriceEntry>,
+    usd_inr_rate: String,
+    use_44ada: bool,
+}
+
+#[derive(Serialize)]
+struct ProofResponse {
+    /// Ledger commitment (SHA256 hash, hex encoded)
+    ledger_commitment: String,
+    /// Total tax in paisa
+    total_tax_paisa: u64,
+    /// User type code (0=Individual, 1=HUF, 2=Corporate)
+    user_type_code: u8,
+    /// Whether 44ADA was used
+    used_44ada: bool,
+    /// Mock proof data (base64 encoded)
+    /// In production, this would be actual SP1 proof bytes
+    proof: String,
+    /// Public values (base64 encoded ABI-encoded struct)
+    public_values: String,
+    /// Verification key hash (for on-chain verification)
+    vk_hash: String,
+    /// Note about proof status
+    note: String,
+}
+
+async fn generate_proof(
+    Json(payload): Json<ProofRequest>,
+) -> Result<Json<ProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Parse user type
+    let user_type = match payload.user_type.as_str() {
+        "individual" => UserType::Individual,
+        "huf" => UserType::Huf,
+        "corporate" => UserType::Corporate,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid user type: {}", payload.user_type),
+                }),
+            ));
+        }
+    };
+
+    let user_type_code = match user_type {
+        UserType::Individual => 0u8,
+        UserType::Huf => 1u8,
+        UserType::Corporate => 2u8,
+    };
+
+    // Compute ledger commitment (SHA256 hash of JSON-serialized ledger)
+    let ledger_json = serde_json::to_string(&payload.ledger).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to serialize ledger: {}", e),
+            }),
+        )
+    })?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(ledger_json.as_bytes());
+    let ledger_commitment = hex::encode(hasher.finalize());
+
+    // Calculate tax
+    let input = TaxInput {
+        user_type,
+        wallets: vec![],
+        ledger: payload.ledger,
+        prices: payload.prices,
+        usd_inr_rate: payload.usd_inr_rate.clone(),
+        use_44ada: payload.use_44ada,
+    };
+
+    let breakdown = calculate_tax(&input);
+    let total_tax_inr: f64 = breakdown.total_tax_inr.parse().unwrap_or(0.0);
+    let total_tax_paisa = (total_tax_inr * 100.0) as u64;
+
+    // For hackathon MVP: generate mock proof data
+    // In production, this would call the actual SP1 prover
+    let mock_proof = format!(
+        "MOCK_PROOF_v1:commitment={},tax={},user={},44ada={}",
+        &ledger_commitment[..16],
+        total_tax_paisa,
+        user_type_code,
+        payload.use_44ada
+    );
+
+    // Encode public values (simplified ABI encoding for demo)
+    // Real encoding would use alloy-sol-types
+    let mut public_values = Vec::new();
+    public_values.extend_from_slice(&hex::decode(&ledger_commitment).unwrap_or_default());
+    public_values.extend_from_slice(&[0u8; 24]); // Padding for uint256
+    public_values.extend_from_slice(&total_tax_paisa.to_be_bytes());
+    public_values.push(user_type_code);
+    public_values.push(if payload.use_44ada { 1 } else { 0 });
+
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+
+    Ok(Json(ProofResponse {
+        ledger_commitment,
+        total_tax_paisa,
+        user_type_code,
+        used_44ada: payload.use_44ada,
+        proof: BASE64.encode(mock_proof.as_bytes()),
+        public_values: BASE64.encode(&public_values),
+        vk_hash: "0x".to_string() + &"0".repeat(64), // Mock VK hash
+        note: "Demo proof - actual SP1 proving requires local prover setup".to_string(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load .env file (ignore if not found)
@@ -190,6 +310,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/transfers", post(get_transfers))
         .route("/tax", post(calculate_tax_endpoint))
+        .route("/proofs", post(generate_proof))
         .layer(cors)
         .with_state(state);
 

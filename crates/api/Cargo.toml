@@ -9,6 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 financoor-core = { path = "../core" }
+# Note: prover not imported here - API uses mock proofs for demo
+# Real SP1 proving requires separate prover service
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
@@ -20,3 +22,6 @@ dotenvy = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
