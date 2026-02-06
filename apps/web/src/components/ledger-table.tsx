@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useSession, type LedgerRow } from "@/lib/session";
+import { useSession, type LedgerRow, type Category } from "@/lib/session";
 import {
   IconArrowDownLeft,
   IconArrowUpRight,
   IconExternalLink,
-  IconFilter,
+  IconAlertTriangle,
+  IconCheck,
+  IconX,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -44,18 +46,181 @@ const categoryColors: Record<string, string> = {
   unknown: "text-neutral-400 bg-neutral-800/50 border-neutral-700/50",
 };
 
+const categoryLabels: Record<Category, string> = {
+  income: "Income",
+  gains: "Gains",
+  losses: "Losses",
+  fees: "Fees",
+  internal: "Internal",
+  unknown: "Unknown",
+};
+
+type TabFilter = "all" | "review" | Category;
+
+interface CategoryTabProps {
+  active: TabFilter;
+  tab: TabFilter;
+  label: string;
+  count: number;
+  onClick: () => void;
+  variant?: "default" | "warning";
+}
+
+function CategoryTab({ active, tab, label, count, onClick, variant = "default" }: CategoryTabProps) {
+  const isActive = active === tab;
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5",
+        isActive
+          ? variant === "warning"
+            ? "bg-yellow-500/20 text-yellow-400 border border-yellow-600/50"
+            : "bg-neutral-700 text-white border border-neutral-600"
+          : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50"
+      )}
+    >
+      {variant === "warning" && <IconAlertTriangle className="w-3 h-3" />}
+      {label}
+      <span className={cn(
+        "text-[10px] px-1.5 py-0.5 rounded-full",
+        isActive
+          ? variant === "warning"
+            ? "bg-yellow-500/30 text-yellow-300"
+            : "bg-neutral-600 text-neutral-200"
+          : "bg-neutral-800 text-neutral-500"
+      )}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+interface CategorySelectProps {
+  row: LedgerRow;
+  effectiveCategory: Category;
+  hasOverride: boolean;
+  onOverride: (category: Category) => void;
+  onClearOverride: () => void;
+}
+
+function CategorySelect({ row, effectiveCategory, hasOverride, onOverride, onClearOverride }: CategorySelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const categories: Category[] = ["income", "gains", "losses", "fees", "internal", "unknown"];
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "px-2 py-0.5 rounded text-xs border flex items-center gap-1",
+          categoryColors[effectiveCategory],
+          hasOverride && "ring-1 ring-purple-500/50"
+        )}
+      >
+        {categoryLabels[effectiveCategory]}
+        {hasOverride && (
+          <span className="text-purple-400 text-[10px]">(edited)</span>
+        )}
+      </button>
+
+      {isOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute right-0 top-full mt-1 z-20 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => {
+                  onOverride(cat);
+                  setIsOpen(false);
+                }}
+                className={cn(
+                  "w-full px-3 py-1.5 text-left text-xs flex items-center justify-between hover:bg-neutral-700/50",
+                  effectiveCategory === cat && "bg-neutral-700/30"
+                )}
+              >
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded border text-[10px]",
+                  categoryColors[cat]
+                )}>
+                  {categoryLabels[cat]}
+                </span>
+                {effectiveCategory === cat && (
+                  <IconCheck className="w-3 h-3 text-green-400" />
+                )}
+              </button>
+            ))}
+            {hasOverride && (
+              <>
+                <div className="border-t border-neutral-700 my-1" />
+                <button
+                  onClick={() => {
+                    onClearOverride();
+                    setIsOpen(false);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-neutral-700/50 flex items-center gap-1"
+                >
+                  <IconX className="w-3 h-3" />
+                  Reset to original
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function LedgerTable() {
-  const { session } = useSession();
-  const [filter, setFilter] = useState<string>("all");
+  const { session, setCategoryOverride, removeCategoryOverride } = useSession();
+  const [activeTab, setActiveTab] = useState<TabFilter>("all");
   const [walletFilter, setWalletFilter] = useState<string>("all");
 
+  // Build a map of overrides for quick lookup
+  const overrideMap = new Map<string, Category>();
+  for (const override of session.categoryOverrides) {
+    overrideMap.set(override.ledgerRowId, override.category);
+  }
+
+  // Get effective category for a row (override > original)
+  const getEffectiveCategory = (row: LedgerRow): Category => {
+    return overrideMap.get(row.id) ?? row.category;
+  };
+
+  // Check if row needs review (low confidence or unknown)
+  const needsReview = (row: LedgerRow): boolean => {
+    const effective = getEffectiveCategory(row);
+    return effective === "unknown" || (row.confidence < 0.7 && !overrideMap.has(row.id));
+  };
+
+  // Count by category
+  const counts = {
+    all: session.ledger.length,
+    review: session.ledger.filter(needsReview).length,
+    income: session.ledger.filter((r) => getEffectiveCategory(r) === "income").length,
+    gains: session.ledger.filter((r) => getEffectiveCategory(r) === "gains").length,
+    losses: session.ledger.filter((r) => getEffectiveCategory(r) === "losses").length,
+    fees: session.ledger.filter((r) => getEffectiveCategory(r) === "fees").length,
+    internal: session.ledger.filter((r) => getEffectiveCategory(r) === "internal").length,
+    unknown: session.ledger.filter((r) => getEffectiveCategory(r) === "unknown").length,
+  };
+
   const filteredLedger = session.ledger.filter((row) => {
-    if (filter !== "all" && row.category !== filter) return false;
+    // Wallet filter
     if (walletFilter !== "all" && row.ownerWallet !== walletFilter) return false;
-    return true;
+
+    // Tab filter
+    if (activeTab === "all") return true;
+    if (activeTab === "review") return needsReview(row);
+    return getEffectiveCategory(row) === activeTab;
   });
 
-  const categories = ["all", "income", "gains", "losses", "fees", "internal", "unknown"];
   const wallets = ["all", ...new Set(session.ledger.map((r) => r.ownerWallet))];
 
   if (session.ledger.length === 0) {
@@ -71,24 +236,72 @@ export function LedgerTable() {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <IconFilter className="w-4 h-4 text-neutral-500" />
-          <span className="text-xs text-neutral-500">Category:</span>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="text-xs bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-neutral-300 focus:outline-none"
-          >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1)}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Category tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        <CategoryTab
+          active={activeTab}
+          tab="all"
+          label="All"
+          count={counts.all}
+          onClick={() => setActiveTab("all")}
+        />
+        {counts.review > 0 && (
+          <CategoryTab
+            active={activeTab}
+            tab="review"
+            label="Needs Review"
+            count={counts.review}
+            onClick={() => setActiveTab("review")}
+            variant="warning"
+          />
+        )}
+        <div className="w-px h-5 bg-neutral-700 mx-1" />
+        <CategoryTab
+          active={activeTab}
+          tab="income"
+          label="Income"
+          count={counts.income}
+          onClick={() => setActiveTab("income")}
+        />
+        <CategoryTab
+          active={activeTab}
+          tab="gains"
+          label="Gains"
+          count={counts.gains}
+          onClick={() => setActiveTab("gains")}
+        />
+        <CategoryTab
+          active={activeTab}
+          tab="losses"
+          label="Losses"
+          count={counts.losses}
+          onClick={() => setActiveTab("losses")}
+        />
+        <CategoryTab
+          active={activeTab}
+          tab="fees"
+          label="Fees"
+          count={counts.fees}
+          onClick={() => setActiveTab("fees")}
+        />
+        <CategoryTab
+          active={activeTab}
+          tab="internal"
+          label="Internal"
+          count={counts.internal}
+          onClick={() => setActiveTab("internal")}
+        />
+        <CategoryTab
+          active={activeTab}
+          tab="unknown"
+          label="Unknown"
+          count={counts.unknown}
+          onClick={() => setActiveTab("unknown")}
+        />
+      </div>
 
+      {/* Secondary filters */}
+      <div className="flex flex-wrap items-center gap-3">
         {wallets.length > 2 && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-neutral-500">Wallet:</span>
@@ -108,6 +321,11 @@ export function LedgerTable() {
 
         <span className="text-xs text-neutral-500 ml-auto">
           {filteredLedger.length} of {session.ledger.length} transactions
+          {session.categoryOverrides.length > 0 && (
+            <span className="text-purple-400 ml-2">
+              ({session.categoryOverrides.length} override{session.categoryOverrides.length !== 1 ? "s" : ""})
+            </span>
+          )}
         </span>
       </div>
 
@@ -127,64 +345,89 @@ export function LedgerTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {filteredLedger.map((row) => (
-                <tr
-                  key={row.id}
-                  className="hover:bg-neutral-800/30 transition-colors"
-                >
-                  <td className="p-3 text-neutral-300 whitespace-nowrap">
-                    {formatDate(row.blockTime)}
-                  </td>
-                  <td className="p-3">
-                    {row.direction === "in" ? (
-                      <span className="flex items-center gap-1 text-green-400">
-                        <IconArrowDownLeft className="w-4 h-4" />
-                        In
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-red-400">
-                        <IconArrowUpRight className="w-4 h-4" />
-                        Out
-                      </span>
+              {filteredLedger.map((row) => {
+                const effectiveCategory = getEffectiveCategory(row);
+                const hasOverride = overrideMap.has(row.id);
+                const isReviewNeeded = needsReview(row);
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "hover:bg-neutral-800/30 transition-colors",
+                      isReviewNeeded && "bg-yellow-950/10"
                     )}
-                  </td>
-                  <td className="p-3 text-neutral-200 font-medium">
-                    {row.asset}
-                  </td>
-                  <td className="p-3 text-right font-mono text-neutral-200">
-                    {row.direction === "in" ? "+" : "-"}
-                    {formatAmount(row.amount, row.decimals)}
-                  </td>
-                  <td className="p-3">
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded text-xs border",
-                        categoryColors[row.category]
+                  >
+                    <td className="p-3 text-neutral-300 whitespace-nowrap">
+                      {formatDate(row.blockTime)}
+                    </td>
+                    <td className="p-3">
+                      {row.direction === "in" ? (
+                        <span className="flex items-center gap-1 text-green-400">
+                          <IconArrowDownLeft className="w-4 h-4" />
+                          In
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-red-400">
+                          <IconArrowUpRight className="w-4 h-4" />
+                          Out
+                        </span>
                       )}
-                    >
-                      {row.category}
-                    </span>
-                  </td>
-                  <td className="p-3 font-mono text-xs text-neutral-400">
-                    {row.counterparty ? shortenAddress(row.counterparty) : "—"}
-                  </td>
-                  <td className="p-3">
-                    <a
-                      href={`https://sepolia.etherscan.io/tx/${row.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      {shortenHash(row.txHash)}
-                      <IconExternalLink className="w-3 h-3" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-3 text-neutral-200 font-medium">
+                      {row.asset}
+                    </td>
+                    <td className="p-3 text-right font-mono text-neutral-200">
+                      {row.direction === "in" ? "+" : "-"}
+                      {formatAmount(row.amount, row.decimals)}
+                    </td>
+                    <td className="p-3">
+                      <CategorySelect
+                        row={row}
+                        effectiveCategory={effectiveCategory}
+                        hasOverride={hasOverride}
+                        onOverride={(cat) => setCategoryOverride(row.id, cat)}
+                        onClearOverride={() => removeCategoryOverride(row.id)}
+                      />
+                    </td>
+                    <td className="p-3 font-mono text-xs text-neutral-400">
+                      {row.counterparty ? shortenAddress(row.counterparty) : "—"}
+                    </td>
+                    <td className="p-3">
+                      <a
+                        href={`https://sepolia.etherscan.io/tx/${row.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                      >
+                        {shortenHash(row.txHash)}
+                        <IconExternalLink className="w-3 h-3" />
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Review hint */}
+      {counts.review > 0 && activeTab !== "review" && (
+        <div className="p-3 rounded-lg bg-yellow-950/30 border border-yellow-900/50 flex items-center gap-2">
+          <IconAlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+          <p className="text-xs text-yellow-400/80">
+            <strong>{counts.review} transaction{counts.review !== 1 ? "s" : ""}</strong> need{counts.review === 1 ? "s" : ""} review.
+            {" "}
+            <button
+              onClick={() => setActiveTab("review")}
+              className="underline hover:text-yellow-300"
+            >
+              Review now
+            </button>
+          </p>
+        </div>
+      )}
     </div>
   );
 }

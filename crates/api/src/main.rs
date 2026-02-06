@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use financoor_core::LedgerRow;
+use financoor_core::{categorize_ledger, LedgerRow};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -98,6 +98,9 @@ async fn get_transfers(
 
     // Sort all ledger entries by block time
     all_ledger.sort_by(|a, b| a.block_time.cmp(&b.block_time));
+
+    // Categorize transactions based on heuristics
+    categorize_ledger(&mut all_ledger, &payload.wallets);
 
     Ok(Json(TransfersResponse {
         ledger: all_ledger,

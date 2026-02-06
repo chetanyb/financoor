@@ -139,6 +139,136 @@ sol! {
     }
 }
 
+/// Known demo contract addresses on Sepolia (lowercase)
+pub mod demo_contracts {
+    pub const PROFIT_MACHINE: &str = ""; // To be filled after deployment
+    pub const LOSS_MACHINE: &str = "";   // To be filled after deployment
+    pub const YIELD_FARM: &str = "";     // To be filled after deployment
+    pub const DEMO_TOKEN: &str = "";     // To be filled after deployment
+}
+
+/// Result of categorization with confidence score
+#[derive(Debug, Clone)]
+pub struct CategorizationResult {
+    pub category: Category,
+    pub confidence: f32,
+}
+
+/// Categorize a ledger row based on heuristics
+///
+/// Rules:
+/// 1. INTERNAL: counterparty is in user's wallet list
+/// 2. GAINS: inflow from ProfitMachine or YieldFarm
+/// 3. LOSSES: outflow to LossMachine (the return is categorized separately)
+/// 4. FEES: small ETH outflows (likely gas)
+/// 5. INCOME: other inflows
+/// 6. UNKNOWN: can't determine
+pub fn categorize_transaction(
+    row: &LedgerRow,
+    user_wallets: &[String],
+) -> CategorizationResult {
+    let counterparty = row.counterparty.as_ref().map(|s| s.to_lowercase());
+    let user_wallets_lower: Vec<String> = user_wallets.iter().map(|w| w.to_lowercase()).collect();
+
+    // Rule 1: Internal transfer between user's own wallets
+    if let Some(ref cp) = counterparty {
+        if user_wallets_lower.contains(cp) {
+            return CategorizationResult {
+                category: Category::Internal,
+                confidence: 1.0,
+            };
+        }
+    }
+
+    // Rule 2: Check known demo contracts for gains
+    if row.direction == Direction::In {
+        if let Some(ref cp) = counterparty {
+            // Inflow from ProfitMachine or YieldFarm = Gains
+            if !demo_contracts::PROFIT_MACHINE.is_empty() && cp == demo_contracts::PROFIT_MACHINE {
+                return CategorizationResult {
+                    category: Category::Gains,
+                    confidence: 0.95,
+                };
+            }
+            if !demo_contracts::YIELD_FARM.is_empty() && cp == demo_contracts::YIELD_FARM {
+                return CategorizationResult {
+                    category: Category::Gains,
+                    confidence: 0.95,
+                };
+            }
+            // Inflow from LossMachine = still a return, but it's a loss scenario
+            // The loss is the difference, but we categorize the return as part of a loss event
+            if !demo_contracts::LOSS_MACHINE.is_empty() && cp == demo_contracts::LOSS_MACHINE {
+                return CategorizationResult {
+                    category: Category::Losses,
+                    confidence: 0.95,
+                };
+            }
+        }
+    }
+
+    // Rule 3: Outflows to known contracts
+    if row.direction == Direction::Out {
+        if let Some(ref cp) = counterparty {
+            // Outflow to demo contracts - these are deposits, categorize based on contract
+            if !demo_contracts::PROFIT_MACHINE.is_empty() && cp == demo_contracts::PROFIT_MACHINE {
+                return CategorizationResult {
+                    category: Category::Gains, // Part of a gain-generating event
+                    confidence: 0.9,
+                };
+            }
+            if !demo_contracts::LOSS_MACHINE.is_empty() && cp == demo_contracts::LOSS_MACHINE {
+                return CategorizationResult {
+                    category: Category::Losses, // Part of a loss-generating event
+                    confidence: 0.9,
+                };
+            }
+            if !demo_contracts::YIELD_FARM.is_empty() && cp == demo_contracts::YIELD_FARM {
+                return CategorizationResult {
+                    category: Category::Gains, // Staking for yield
+                    confidence: 0.9,
+                };
+            }
+        }
+
+        // Rule 4: Small ETH outflows are likely fees
+        if row.asset == "ETH" {
+            if let Ok(amount) = row.amount.parse::<f64>() {
+                // Less than 0.01 ETH is likely gas
+                if amount < 0.01 {
+                    return CategorizationResult {
+                        category: Category::Fees,
+                        confidence: 0.8,
+                    };
+                }
+            }
+        }
+    }
+
+    // Rule 5: Other inflows = Income (professional income)
+    if row.direction == Direction::In {
+        return CategorizationResult {
+            category: Category::Income,
+            confidence: 0.6, // Lower confidence, user should review
+        };
+    }
+
+    // Rule 6: Can't determine
+    CategorizationResult {
+        category: Category::Unknown,
+        confidence: 0.0,
+    }
+}
+
+/// Categorize all rows in a ledger
+pub fn categorize_ledger(ledger: &mut [LedgerRow], user_wallets: &[String]) {
+    for row in ledger.iter_mut() {
+        let result = categorize_transaction(row, user_wallets);
+        row.category = result.category;
+        row.confidence = result.confidence;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +278,52 @@ mod tests {
         let ut = UserType::Individual;
         let json = serde_json::to_string(&ut).unwrap();
         assert_eq!(json, "\"individual\"");
+    }
+
+    #[test]
+    fn test_internal_categorization() {
+        let row = LedgerRow {
+            chain_id: 11155111,
+            owner_wallet: "0xabc".to_string(),
+            tx_hash: "0x123".to_string(),
+            block_time: 1234567890,
+            asset: "ETH".to_string(),
+            amount: "1.0".to_string(),
+            decimals: 18,
+            direction: Direction::In,
+            counterparty: Some("0xdef".to_string()),
+            category: Category::Unknown,
+            confidence: 0.0,
+            user_override: false,
+        };
+
+        let wallets = vec!["0xabc".to_string(), "0xdef".to_string()];
+        let result = categorize_transaction(&row, &wallets);
+
+        assert_eq!(result.category, Category::Internal);
+        assert_eq!(result.confidence, 1.0);
+    }
+
+    #[test]
+    fn test_small_eth_outflow_is_fee() {
+        let row = LedgerRow {
+            chain_id: 11155111,
+            owner_wallet: "0xabc".to_string(),
+            tx_hash: "0x123".to_string(),
+            block_time: 1234567890,
+            asset: "ETH".to_string(),
+            amount: "0.005".to_string(),
+            decimals: 18,
+            direction: Direction::Out,
+            counterparty: Some("0xcontract".to_string()),
+            category: Category::Unknown,
+            confidence: 0.0,
+            user_override: false,
+        };
+
+        let wallets = vec!["0xabc".to_string()];
+        let result = categorize_transaction(&row, &wallets);
+
+        assert_eq!(result.category, Category::Fees);
     }
 }

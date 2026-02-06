@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "@/lib/session";
 import { IconCurrencyDollar, IconCurrencyRupee, IconInfoCircle } from "@tabler/icons-react";
 
@@ -17,52 +17,58 @@ export function PricingPanel() {
   const { session, setPrices, setUsdInrRate } = useSession();
   const [localUsdInr, setLocalUsdInr] = useState(session.usdInrRate || DEFAULT_USD_INR);
   const [localPrices, setLocalPrices] = useState<Record<string, string>>({});
+  const initializedRef = useRef(false);
+  const prevLedgerLengthRef = useRef(session.ledger.length);
 
   // Get unique assets from ledger
   const uniqueAssets = [...new Set(session.ledger.map((row) => row.asset))];
 
-  // Initialize local prices from session or defaults
+  // Initialize local prices from session or defaults (only once or when new assets appear)
   useEffect(() => {
-    const priceMap: Record<string, string> = {};
+    const ledgerChanged = session.ledger.length !== prevLedgerLengthRef.current;
+    prevLedgerLengthRef.current = session.ledger.length;
 
-    // Start with session prices
-    for (const entry of session.prices) {
-      priceMap[entry.asset] = entry.usdPrice;
-    }
+    // Only initialize on first mount or when ledger gets new entries
+    if (!initializedRef.current || ledgerChanged) {
+      const priceMap: Record<string, string> = {};
 
-    // Fill in defaults for any missing assets
-    for (const asset of uniqueAssets) {
-      if (!priceMap[asset]) {
-        priceMap[asset] = DEFAULT_PRICES[asset] || "1.00";
+      // Start with session prices
+      for (const entry of session.prices) {
+        priceMap[entry.asset] = entry.usdPrice;
       }
+
+      // Fill in defaults for any missing assets
+      for (const asset of uniqueAssets) {
+        if (!priceMap[asset]) {
+          priceMap[asset] = DEFAULT_PRICES[asset] || "1.00";
+        }
+      }
+
+      setLocalPrices(priceMap);
+      initializedRef.current = true;
     }
-
-    setLocalPrices(priceMap);
-  }, [session.prices, session.ledger.length]);
-
-  // Sync local state to session
-  useEffect(() => {
-    const priceEntries = Object.entries(localPrices).map(([asset, usdPrice]) => ({
-      asset,
-      usdPrice,
-    }));
-    setPrices(priceEntries);
-  }, [localPrices, setPrices]);
-
-  useEffect(() => {
-    setUsdInrRate(localUsdInr);
-  }, [localUsdInr, setUsdInrRate]);
+  }, [session.prices, session.ledger.length, uniqueAssets]);
 
   const handlePriceChange = (asset: string, value: string) => {
     // Allow only valid decimal numbers
     if (value === "" || /^\d*\.?\d*$/.test(value)) {
-      setLocalPrices((prev) => ({ ...prev, [asset]: value }));
+      setLocalPrices((prev) => {
+        const updated = { ...prev, [asset]: value };
+        // Sync to session immediately
+        const priceEntries = Object.entries(updated).map(([a, usdPrice]) => ({
+          asset: a,
+          usdPrice,
+        }));
+        setPrices(priceEntries);
+        return updated;
+      });
     }
   };
 
   const handleUsdInrChange = (value: string) => {
     if (value === "" || /^\d*\.?\d*$/.test(value)) {
       setLocalUsdInr(value);
+      setUsdInrRate(value);
     }
   };
 
