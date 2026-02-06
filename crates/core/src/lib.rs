@@ -64,11 +64,38 @@ pub struct PriceEntry {
     pub usd_price: String, // String to preserve precision
 }
 
+/// Source of wallet discovery
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WalletSource {
+    Manual,
+    EnsTextRecord,
+    EnsSubdomain,
+}
+
+/// A wallet belonging to the user
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wallet {
+    pub id: String,
+    pub address: String,
+    pub label: Option<String>,
+    pub group_id: Option<String>,
+    pub source: WalletSource,
+}
+
+/// A group of wallets (e.g., family member, business unit)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletGroup {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
 /// Complete input for tax calculation and proving
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxInput {
     pub user_type: UserType,
-    pub wallets: Vec<String>,
+    pub wallets: Vec<Wallet>,
     pub ledger: Vec<LedgerRow>,
     pub prices: Vec<PriceEntry>,
     pub usd_inr_rate: String,
