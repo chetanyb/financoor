@@ -5,6 +5,7 @@ import { FloatingDock } from "@/components/ui/floating-dock";
 import { SessionManager } from "@/components/session-manager";
 import { Wizard } from "@/components/wizard";
 import { LedgerTable } from "@/components/ledger-table";
+import { PricingPanel } from "@/components/pricing-panel";
 import { useSession, type LedgerRow } from "@/lib/session";
 import { fetchTransfers, type ApiLedgerRow } from "@/lib/api";
 import {
@@ -189,6 +190,9 @@ function SetupComplete() {
         <h3 className="text-lg font-semibold text-neutral-200 mb-4">Transaction Ledger</h3>
         <LedgerTable />
       </div>
+
+      {/* Pricing panel (when transactions exist) */}
+      {session.ledger.length > 0 && <PricingPanel />}
 
       {/* Next steps (when ledger is empty) */}
       {session.ledger.length === 0 && (
