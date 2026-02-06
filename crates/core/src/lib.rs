@@ -269,6 +269,156 @@ pub fn categorize_ledger(ledger: &mut [LedgerRow], user_wallets: &[String]) {
     }
 }
 
+// ============================================================================
+// TAX CALCULATOR
+// ============================================================================
+
+/// New regime tax slabs for AY 2026-27 (Individual/HUF)
+const NEW_REGIME_SLABS: [(u64, u64, f64); 7] = [
+    (0, 400_000, 0.0),           // Up to 4L: 0%
+    (400_001, 800_000, 0.05),    // 4L-8L: 5%
+    (800_001, 1_200_000, 0.10),  // 8L-12L: 10%
+    (1_200_001, 1_600_000, 0.15), // 12L-16L: 15%
+    (1_600_001, 2_000_000, 0.20), // 16L-20L: 20%
+    (2_000_001, 2_400_000, 0.25), // 20L-24L: 25%
+    (2_400_001, u64::MAX, 0.30),  // Above 24L: 30%
+];
+
+/// VDA tax rate under Section 115BBH
+const VDA_TAX_RATE: f64 = 0.30;
+
+/// Corporate tax rate under Section 115BAA
+const CORPORATE_TAX_RATE: f64 = 0.22;
+
+/// Corporate surcharge rate
+const CORPORATE_SURCHARGE_RATE: f64 = 0.10;
+
+/// Health & Education Cess rate
+const CESS_RATE: f64 = 0.04;
+
+/// 44ADA presumptive income rate
+const PRESUMPTIVE_44ADA_RATE: f64 = 0.50;
+
+/// Calculate slab tax for Individual/HUF under new regime
+fn calculate_slab_tax(taxable_income: u64) -> u64 {
+    let mut tax: u64 = 0;
+
+    for (lower, upper, rate) in NEW_REGIME_SLABS.iter() {
+        if taxable_income > *lower {
+            let amount_in_slab = if taxable_income >= *upper {
+                upper - lower
+            } else {
+                taxable_income.saturating_sub(*lower)
+            };
+            tax += (amount_in_slab as f64 * rate) as u64;
+        }
+
+        if taxable_income <= *upper {
+            break;
+        }
+    }
+
+    tax
+}
+
+/// Convert amount to INR using prices and USD/INR rate
+fn amount_to_inr(
+    amount: &str,
+    asset: &str,
+    prices: &[PriceEntry],
+    usd_inr_rate: f64,
+) -> f64 {
+    let amount_val: f64 = amount.parse().unwrap_or(0.0);
+
+    // Find USD price for this asset
+    let usd_price: f64 = prices
+        .iter()
+        .find(|p| p.asset == asset)
+        .map(|p| p.usd_price.parse().unwrap_or(1.0))
+        .unwrap_or(1.0);
+
+    amount_val * usd_price * usd_inr_rate
+}
+
+/// Calculate tax based on categorized ledger and user inputs
+pub fn calculate_tax(input: &TaxInput) -> TaxBreakdown {
+    let usd_inr_rate: f64 = input.usd_inr_rate.parse().unwrap_or(83.0);
+
+    // Sum up amounts by category
+    let mut professional_income_inr: f64 = 0.0;
+    let mut vda_gains_inr: f64 = 0.0;
+    let mut vda_losses_inr: f64 = 0.0;
+
+    for row in &input.ledger {
+        let inr_value = amount_to_inr(&row.amount, &row.asset, &input.prices, usd_inr_rate);
+
+        match row.category {
+            Category::Income => {
+                if row.direction == Direction::In {
+                    professional_income_inr += inr_value;
+                }
+            }
+            Category::Gains => {
+                // For gains, we count inflows as gains
+                if row.direction == Direction::In {
+                    vda_gains_inr += inr_value;
+                }
+            }
+            Category::Losses => {
+                // For losses, the inflow from LossMachine is less than deposit
+                // We track this separately (losses are not offset per 115BBH)
+                if row.direction == Direction::In {
+                    vda_losses_inr += inr_value;
+                }
+            }
+            // Internal, Fees, Unknown don't contribute to taxable income in this MVP
+            _ => {}
+        }
+    }
+
+    // Apply 44ADA if enabled (Individual only)
+    let taxable_professional_income_inr = if input.use_44ada && input.user_type == UserType::Individual {
+        professional_income_inr * PRESUMPTIVE_44ADA_RATE
+    } else {
+        professional_income_inr
+    };
+
+    // Calculate professional income tax based on user type
+    let professional_tax_inr = match input.user_type {
+        UserType::Individual | UserType::Huf => {
+            calculate_slab_tax(taxable_professional_income_inr as u64) as f64
+        }
+        UserType::Corporate => {
+            let base_tax = taxable_professional_income_inr * CORPORATE_TAX_RATE;
+            let surcharge = base_tax * CORPORATE_SURCHARGE_RATE;
+            base_tax + surcharge
+        }
+    };
+
+    // VDA tax at 30% (only on gains, losses cannot be offset)
+    let vda_tax_inr = vda_gains_inr * VDA_TAX_RATE;
+
+    // Total tax before cess
+    let total_before_cess = professional_tax_inr + vda_tax_inr;
+
+    // Health & Education Cess at 4%
+    let cess_inr = total_before_cess * CESS_RATE;
+
+    // Total tax payable
+    let total_tax_inr = total_before_cess + cess_inr;
+
+    TaxBreakdown {
+        professional_income_inr: format!("{:.2}", professional_income_inr),
+        taxable_professional_income_inr: format!("{:.2}", taxable_professional_income_inr),
+        vda_gains_inr: format!("{:.2}", vda_gains_inr),
+        vda_losses_inr: format!("{:.2}", vda_losses_inr),
+        professional_tax_inr: format!("{:.2}", professional_tax_inr),
+        vda_tax_inr: format!("{:.2}", vda_tax_inr),
+        cess_inr: format!("{:.2}", cess_inr),
+        total_tax_inr: format!("{:.2}", total_tax_inr),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

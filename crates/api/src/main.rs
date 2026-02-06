@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use financoor_core::{categorize_ledger, LedgerRow};
+use financoor_core::{calculate_tax, categorize_ledger, LedgerRow, PriceEntry, TaxBreakdown, TaxInput, UserType};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -108,6 +108,52 @@ async fn get_transfers(
     }))
 }
 
+#[derive(Deserialize)]
+struct TaxRequest {
+    user_type: String,
+    ledger: Vec<LedgerRow>,
+    prices: Vec<PriceEntry>,
+    usd_inr_rate: String,
+    use_44ada: bool,
+}
+
+#[derive(Serialize)]
+struct TaxResponse {
+    breakdown: TaxBreakdown,
+}
+
+async fn calculate_tax_endpoint(
+    Json(payload): Json<TaxRequest>,
+) -> Result<Json<TaxResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Parse user type
+    let user_type = match payload.user_type.as_str() {
+        "individual" => UserType::Individual,
+        "huf" => UserType::Huf,
+        "corporate" => UserType::Corporate,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("Invalid user type: {}", payload.user_type),
+                }),
+            ));
+        }
+    };
+
+    let input = TaxInput {
+        user_type,
+        wallets: vec![], // Not needed for calculation
+        ledger: payload.ledger,
+        prices: payload.prices,
+        usd_inr_rate: payload.usd_inr_rate,
+        use_44ada: payload.use_44ada,
+    };
+
+    let breakdown = calculate_tax(&input);
+
+    Ok(Json(TaxResponse { breakdown }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load .env file (ignore if not found)
@@ -143,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/transfers", post(get_transfers))
+        .route("/tax", post(calculate_tax_endpoint))
         .layer(cors)
         .with_state(state);
 

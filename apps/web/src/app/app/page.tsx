@@ -6,6 +6,7 @@ import { SessionManager } from "@/components/session-manager";
 import { Wizard } from "@/components/wizard";
 import { LedgerTable } from "@/components/ledger-table";
 import { PricingPanel } from "@/components/pricing-panel";
+import { TaxPanel } from "@/components/tax-panel";
 import { useSession, type LedgerRow } from "@/lib/session";
 import { fetchTransfers, type ApiLedgerRow } from "@/lib/api";
 import {
@@ -57,7 +58,7 @@ function convertApiLedger(apiRows: ApiLedgerRow[]): LedgerRow[] {
 }
 
 function SetupComplete() {
-  const { session, resetSession, setLedger } = useSession();
+  const { session, resetSession, setLedger, setUse44ada } = useSession();
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -193,6 +194,35 @@ function SetupComplete() {
 
       {/* Pricing panel (when transactions exist) */}
       {session.ledger.length > 0 && <PricingPanel />}
+
+      {/* 44ADA Toggle (Individual only) */}
+      {session.ledger.length > 0 && session.userType === "individual" && (
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-200">Section 44ADA</h3>
+              <p className="text-sm text-neutral-500 mt-1">
+                Presumptive taxation for professionals — pay tax on 50% of gross receipts
+              </p>
+            </div>
+            <button
+              onClick={() => setUse44ada(!session.use44ada)}
+              className={`relative w-12 h-6 rounded-full transition-colors ${
+                session.use44ada ? "bg-purple-600" : "bg-neutral-700"
+              }`}
+            >
+              <span
+                className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                  session.use44ada ? "translate-x-6" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tax calculation panel */}
+      {session.ledger.length > 0 && <TaxPanel />}
 
       {/* Next steps (when ledger is empty) */}
       {session.ledger.length === 0 && (
