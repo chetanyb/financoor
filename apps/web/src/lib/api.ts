@@ -139,3 +139,31 @@ export async function generateProof(request: ProofRequest): Promise<ProofRespons
 
   return response.json();
 }
+
+// ENS resolution types
+export interface EnsSubdomain {
+  name: string;
+  label: string;
+  address: string;
+}
+
+export interface EnsResolveResponse {
+  subdomains: EnsSubdomain[];
+}
+
+export async function resolveEnsSubdomains(rootName: string): Promise<EnsResolveResponse> {
+  const response = await fetch(`${API_BASE}/ens/resolve`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ root_name: rootName }),
+  });
+
+  if (!response.ok) {
+    const error: ApiError = await response.json();
+    throw new Error(error.error || "Failed to resolve ENS subdomains");
+  }
+
+  return response.json();
+}

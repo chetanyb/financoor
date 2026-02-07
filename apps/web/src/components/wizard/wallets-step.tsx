@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import { useSession } from "@/lib/session";
-import { IconPlus, IconTrash, IconWallet } from "@tabler/icons-react";
+import { resolveEnsSubdomains, type EnsSubdomain } from "@/lib/api";
+import {
+  IconPlus,
+  IconTrash,
+  IconWallet,
+  IconWorld,
+  IconLoader2,
+  IconCheck,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 interface WalletsStepProps {
@@ -18,11 +26,23 @@ function shortenAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+type InputMode = "address" | "ens";
+
 export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
   const { session, addWallet, removeWallet, updateWallet } = useSession();
+  const [inputMode, setInputMode] = useState<InputMode>("address");
+
+  // Address input state
   const [newAddress, setNewAddress] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [error, setError] = useState("");
+
+  // ENS input state
+  const [ensRoot, setEnsRoot] = useState("");
+  const [ensLoading, setEnsLoading] = useState(false);
+  const [ensResults, setEnsResults] = useState<EnsSubdomain[] | null>(null);
+  const [ensError, setEnsError] = useState("");
+  const [selectedEns, setSelectedEns] = useState<Set<string>>(new Set());
 
   const handleAddWallet = () => {
     setError("");
@@ -55,6 +75,75 @@ export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
     }
   };
 
+  const handleResolveEns = async () => {
+    setEnsError("");
+    setEnsResults(null);
+    setSelectedEns(new Set());
+
+    if (!ensRoot.trim()) {
+      setEnsError("Please enter an ENS root name");
+      return;
+    }
+
+    // Normalize the name
+    let rootName = ensRoot.trim().toLowerCase();
+    if (!rootName.includes(".")) {
+      rootName = `${rootName}.eth`;
+    }
+
+    setEnsLoading(true);
+
+    try {
+      const response = await resolveEnsSubdomains(rootName);
+      if (response.subdomains.length === 0) {
+        setEnsError("No subdomains with resolved addresses found");
+      } else {
+        setEnsResults(response.subdomains);
+        // Select all by default
+        setSelectedEns(new Set(response.subdomains.map((s) => s.address)));
+      }
+    } catch (err) {
+      setEnsError(err instanceof Error ? err.message : "Failed to resolve ENS");
+    } finally {
+      setEnsLoading(false);
+    }
+  };
+
+  const handleEnsKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleResolveEns();
+    }
+  };
+
+  const toggleEnsSelection = (address: string) => {
+    const next = new Set(selectedEns);
+    if (next.has(address)) {
+      next.delete(address);
+    } else {
+      next.add(address);
+    }
+    setSelectedEns(next);
+  };
+
+  const handleAddSelectedEns = () => {
+    if (!ensResults) return;
+
+    for (const subdomain of ensResults) {
+      if (selectedEns.has(subdomain.address)) {
+        // Skip if already exists
+        if (session.wallets.some((w) => w.address.toLowerCase() === subdomain.address.toLowerCase())) {
+          continue;
+        }
+        addWallet(subdomain.address.toLowerCase(), subdomain.name);
+      }
+    }
+
+    // Reset ENS state
+    setEnsRoot("");
+    setEnsResults(null);
+    setSelectedEns(new Set());
+  };
+
   const handleContinue = () => {
     if (session.wallets.length > 0) {
       onNext();
@@ -68,39 +157,145 @@ export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
           Add Your Wallets
         </h2>
         <p className="text-neutral-500 text-sm">
-          Enter the Ethereum addresses you want to analyze for tax purposes.
+          Enter wallet addresses directly or resolve from an ENS root name.
         </p>
       </div>
 
-      {/* Add wallet form */}
-      <div className="space-y-3">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newAddress}
-            onChange={(e) => setNewAddress(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="0x..."
-            className="flex-1 px-4 py-2.5 bg-neutral-800/50 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 font-mono text-sm"
-          />
-          <input
-            type="text"
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="Label (optional)"
-            className="w-40 px-4 py-2.5 bg-neutral-800/50 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 text-sm"
-          />
-          <button
-            onClick={handleAddWallet}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex items-center gap-2"
-          >
-            <IconPlus className="w-4 h-4" />
-            Add
-          </button>
-        </div>
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+      {/* Mode toggle */}
+      <div className="flex gap-2 p-1 bg-neutral-800/50 rounded-lg">
+        <button
+          onClick={() => setInputMode("address")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-colors",
+            inputMode === "address"
+              ? "bg-neutral-700 text-white"
+              : "text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          <IconWallet className="w-4 h-4" />
+          Address
+        </button>
+        <button
+          onClick={() => setInputMode("ens")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-colors",
+            inputMode === "ens"
+              ? "bg-neutral-700 text-white"
+              : "text-neutral-400 hover:text-neutral-200"
+          )}
+        >
+          <IconWorld className="w-4 h-4" />
+          ENS Root
+        </button>
       </div>
+
+      {/* Address input */}
+      {inputMode === "address" && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newAddress}
+              onChange={(e) => setNewAddress(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="0x..."
+              className="flex-1 px-4 py-2.5 bg-neutral-800/50 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 font-mono text-sm"
+            />
+            <input
+              type="text"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder="Label (optional)"
+              className="w-40 px-4 py-2.5 bg-neutral-800/50 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 text-sm"
+            />
+            <button
+              onClick={handleAddWallet}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex items-center gap-2"
+            >
+              <IconPlus className="w-4 h-4" />
+              Add
+            </button>
+          </div>
+          {error && <p className="text-red-400 text-sm">{error}</p>}
+        </div>
+      )}
+
+      {/* ENS input */}
+      {inputMode === "ens" && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={ensRoot}
+              onChange={(e) => setEnsRoot(e.target.value)}
+              onKeyDown={handleEnsKeyPress}
+              placeholder="family.eth"
+              className="flex-1 px-4 py-2.5 bg-neutral-800/50 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 text-sm"
+            />
+            <button
+              onClick={handleResolveEns}
+              disabled={ensLoading}
+              className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 text-white rounded-lg transition-colors flex items-center gap-2"
+            >
+              {ensLoading ? (
+                <>
+                  <IconLoader2 className="w-4 h-4 animate-spin" />
+                  Resolving...
+                </>
+              ) : (
+                <>
+                  <IconWorld className="w-4 h-4" />
+                  Resolve
+                </>
+              )}
+            </button>
+          </div>
+          {ensError && <p className="text-red-400 text-sm">{ensError}</p>}
+
+          {/* ENS results */}
+          {ensResults && ensResults.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm text-neutral-400">
+                Found {ensResults.length} subdomain{ensResults.length !== 1 ? "s" : ""} with addresses:
+              </p>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {ensResults.map((subdomain) => (
+                  <label
+                    key={subdomain.address}
+                    className="flex items-center gap-3 p-2 bg-neutral-800/30 border border-neutral-700/50 rounded-lg cursor-pointer hover:bg-neutral-800/50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedEns.has(subdomain.address)}
+                      onChange={() => toggleEnsSelection(subdomain.address)}
+                      className="w-4 h-4 rounded border-neutral-600 bg-neutral-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-neutral-200">{subdomain.name}</p>
+                      <p className="text-xs text-neutral-500 font-mono">
+                        {shortenAddress(subdomain.address)}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={handleAddSelectedEns}
+                disabled={selectedEns.size === 0}
+                className="w-full py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <IconPlus className="w-4 h-4" />
+                Add {selectedEns.size} Selected Wallet{selectedEns.size !== 1 ? "s" : ""}
+              </button>
+            </div>
+          )}
+
+          <p className="text-xs text-neutral-600">
+            Note: ENS resolution uses The Graph on mainnet. Only subdomains with resolved addresses are shown.
+          </p>
+        </div>
+      )}
 
       {/* Wallet list */}
       <div className="space-y-2">

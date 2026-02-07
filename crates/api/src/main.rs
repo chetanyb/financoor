@@ -3,6 +3,7 @@
 //! Axum-based backend for wallet data fetching, categorization, and proof generation.
 
 mod alchemy;
+mod ens;
 
 use std::sync::Arc;
 
@@ -19,9 +20,11 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::alchemy::AlchemyClient;
+use crate::ens::EnsResolver;
 
 struct AppState {
     alchemy: AlchemyClient,
+    ens: EnsResolver,
 }
 
 #[derive(Serialize)]
@@ -274,6 +277,67 @@ async fn generate_proof(
     }))
 }
 
+// ============================================================================
+// ENS SUBDOMAIN RESOLUTION
+// ============================================================================
+
+#[derive(Deserialize)]
+struct EnsResolveRequest {
+    root_name: String,
+}
+
+#[derive(Serialize)]
+struct EnsResolveResponse {
+    subdomains: Vec<EnsSubdomain>,
+}
+
+#[derive(Serialize)]
+struct EnsSubdomain {
+    name: String,
+    label: String,
+    address: String,
+}
+
+async fn resolve_ens(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<EnsResolveRequest>,
+) -> Result<Json<EnsResolveResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if payload.root_name.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Root name is required".to_string(),
+            }),
+        ));
+    }
+
+    match state.ens.resolve_subdomains(&payload.root_name).await {
+        Ok(subdomains) => {
+            let subdomains: Vec<EnsSubdomain> = subdomains
+                .into_iter()
+                .filter_map(|s| {
+                    s.address.map(|addr| EnsSubdomain {
+                        name: s.name,
+                        label: s.label,
+                        address: addr,
+                    })
+                })
+                .collect();
+
+            Ok(Json(EnsResolveResponse { subdomains }))
+        }
+        Err(e) => {
+            tracing::error!("Failed to resolve ENS subdomains: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to resolve ENS: {}", e),
+                }),
+            ))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load .env file (ignore if not found)
@@ -297,6 +361,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         alchemy: AlchemyClient::new(alchemy_api_key),
+        ens: EnsResolver::new(),
     });
 
     // CORS configuration
@@ -311,6 +376,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/transfers", post(get_transfers))
         .route("/tax", post(calculate_tax_endpoint))
         .route("/proofs", post(generate_proof))
+        .route("/ens/resolve", post(resolve_ens))
         .layer(cors)
         .with_state(state);
 
