@@ -13,6 +13,7 @@ import {
   IconHome,
   IconApps,
   IconTestPipe,
+  IconShieldCheck,
   IconCheck,
   IconRefresh,
   IconLoader2,
@@ -30,6 +31,11 @@ const dockItems = [
     title: "App",
     icon: <IconApps className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
     href: "/app",
+  },
+  {
+    title: "Verify",
+    icon: <IconShieldCheck className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/verify",
   },
   {
     title: "Demo",
