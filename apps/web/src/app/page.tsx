@@ -9,6 +9,10 @@ import {
   IconHome,
   IconApps,
   IconTestPipe,
+  IconShieldCheck,
+  IconWallet,
+  IconCalculator,
+  IconWorld,
 } from "@tabler/icons-react";
 import Link from "next/link";
 
@@ -22,6 +26,11 @@ const dockItems = [
     title: "App",
     icon: <IconApps className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
     href: "/app",
+  },
+  {
+    title: "Verify",
+    icon: <IconShieldCheck className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/verify",
   },
   {
     title: "Demo",
@@ -137,6 +146,39 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Features */}
+        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full px-4">
+          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
+            <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center mb-3">
+              <IconWallet className="w-5 h-5 text-blue-400" />
+            </div>
+            <h4 className="font-medium text-neutral-200 mb-2">Multi-Wallet Support</h4>
+            <p className="text-sm text-neutral-500">
+              Import wallets by address or resolve from ENS root names to discover family subdomains.
+            </p>
+          </div>
+
+          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
+            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center mb-3">
+              <IconCalculator className="w-5 h-5 text-purple-400" />
+            </div>
+            <h4 className="font-medium text-neutral-200 mb-2">Indian Tax Rules</h4>
+            <p className="text-sm text-neutral-500">
+              Section 115BBH for VDA at 30%, Section 115BAC new regime slabs, and Section 44ADA presumptive.
+            </p>
+          </div>
+
+          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
+            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center mb-3">
+              <IconShieldCheck className="w-5 h-5 text-emerald-400" />
+            </div>
+            <h4 className="font-medium text-neutral-200 mb-2">SP1 Zero-Knowledge</h4>
+            <p className="text-sm text-neutral-500">
+              Generate cryptographic proofs of your tax calculation, verifiable on-chain without revealing data.
+            </p>
+          </div>
+        </div>
+
         {/* CTA Button */}
         <Link
           href="/app"
@@ -147,7 +189,15 @@ export default function Home() {
 
         {/* Footer */}
         <div className="mt-16 mb-24 text-center text-xs text-neutral-600">
-          <p>Built for HackMoney 2026 | Powered by SP1 zkVM</p>
+          <p className="mb-2">Built for HackMoney 2026</p>
+          <p className="flex items-center justify-center gap-2">
+            Powered by
+            <a href="https://succinct.xyz" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-300 underline">SP1 zkVM</a>
+            +
+            <a href="https://alchemy.com" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-300 underline">Alchemy</a>
+            +
+            <a href="https://ens.domains" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-300 underline">ENS</a>
+          </p>
         </div>
       </div>
     </div>
