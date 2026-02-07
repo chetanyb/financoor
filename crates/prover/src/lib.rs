@@ -6,7 +6,7 @@
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
+use sp1_sdk::{include_elf, EnvProver, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
 
 /// The ELF binary for the tax_zk SP1 program
 pub const TAX_ZK_ELF: &[u8] = include_elf!("tax-zk");
@@ -28,7 +28,7 @@ pub struct ProofArtifacts {
 
 /// Prover service that caches proving/verification keys
 pub struct TaxProver {
-    client: ProverClient,
+    client: EnvProver,
 }
 
 impl TaxProver {
@@ -61,13 +61,13 @@ impl TaxProver {
         // Setup proving and verification keys
         let (pk, vk) = self.client.setup(TAX_ZK_ELF);
 
-        tracing::info!("Generating proof...");
+        tracing::info!("Generating Groth16 proof for on-chain verification...");
 
-        // Generate the proof
+        // Generate a Groth16 proof (required for on-chain verification)
         let proof: SP1ProofWithPublicValues = self
             .client
             .prove(&pk, &stdin)
-            .compressed()
+            .groth16()
             .run()?;
 
         tracing::info!("Proof generated successfully");
@@ -113,6 +113,12 @@ impl TaxProver {
         self.client.verify(&proof, &vk)?;
 
         Ok(true)
+    }
+
+    /// Get the verification key hash for the tax program
+    pub fn get_vk_hash(&self) -> String {
+        let (_, vk) = self.client.setup(TAX_ZK_ELF);
+        vk.bytes32()
     }
 }
 

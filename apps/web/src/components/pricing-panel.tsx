@@ -52,16 +52,14 @@ export function PricingPanel() {
   const handlePriceChange = (asset: string, value: string) => {
     // Allow only valid decimal numbers
     if (value === "" || /^\d*\.?\d*$/.test(value)) {
-      setLocalPrices((prev) => {
-        const updated = { ...prev, [asset]: value };
-        // Sync to session immediately
-        const priceEntries = Object.entries(updated).map(([a, usdPrice]) => ({
-          asset: a,
-          usdPrice,
-        }));
-        setPrices(priceEntries);
-        return updated;
-      });
+      const updated = { ...localPrices, [asset]: value };
+      setLocalPrices(updated);
+      // Sync to session after local state update
+      const priceEntries = Object.entries(updated).map(([a, usdPrice]) => ({
+        asset: a,
+        usdPrice,
+      }));
+      setPrices(priceEntries);
     }
   };
 

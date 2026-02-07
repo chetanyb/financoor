@@ -39,9 +39,10 @@ interface BreakdownRowProps {
   highlight?: boolean;
   sublabel?: string;
   negative?: boolean;
+  rebate?: boolean;
 }
 
-function BreakdownRow({ label, value, highlight, sublabel, negative }: BreakdownRowProps) {
+function BreakdownRow({ label, value, highlight, sublabel, negative, rebate }: BreakdownRowProps) {
   return (
     <div className={cn(
       "flex items-center justify-between py-2",
@@ -61,9 +62,10 @@ function BreakdownRow({ label, value, highlight, sublabel, negative }: Breakdown
       <p className={cn(
         "font-mono text-sm",
         highlight ? "text-neutral-200 font-semibold" : "text-neutral-300",
-        negative && "text-red-400"
+        negative && "text-red-400",
+        rebate && "text-green-400"
       )}>
-        {formatINR(value)}
+        {rebate ? `(−${formatINR(value)})` : formatINR(value)}
       </p>
     </div>
   );
@@ -322,6 +324,14 @@ export function TaxPanel() {
                     value={breakdown.professional_tax_inr}
                     highlight
                   />
+                  {parseFloat(breakdown.section_87a_rebate_inr) > 0 && (
+                    <BreakdownRow
+                      label="Section 87A Rebate"
+                      value={breakdown.section_87a_rebate_inr}
+                      rebate
+                      sublabel="For income ≤ ₹12L under new regime"
+                    />
+                  )}
                 </div>
 
                 <div className="border-t border-neutral-700/50 my-3" />

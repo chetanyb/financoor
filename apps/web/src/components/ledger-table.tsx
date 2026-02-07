@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useSession, type LedgerRow, type Category } from "@/lib/session";
 import {
   IconArrowDownLeft,
@@ -107,12 +107,26 @@ interface CategorySelectProps {
 
 function CategorySelect({ row, effectiveCategory, hasOverride, onOverride, onClearOverride }: CategorySelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const categories: Category[] = ["income", "gains", "losses", "fees", "internal", "unknown"];
+
+  const handleOpen = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.right - 140, // align right edge
+      });
+    }
+    setIsOpen(true);
+  };
 
   return (
     <div className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={handleOpen}
         className={cn(
           "px-2 py-0.5 rounded text-xs border flex items-center gap-1",
           categoryColors[effectiveCategory],
@@ -128,10 +142,13 @@ function CategorySelect({ row, effectiveCategory, hasOverride, onOverride, onCle
       {isOpen && (
         <>
           <div
-            className="fixed inset-0 z-10"
+            className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-full mt-1 z-20 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[140px]">
+          <div
+            className="fixed z-50 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[140px]"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
             {categories.map((cat) => (
               <button
                 key={cat}
@@ -330,8 +347,8 @@ export function LedgerTable() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-neutral-800 overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="rounded-xl border border-neutral-800">
+        <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-neutral-800/50 text-neutral-400 text-xs uppercase tracking-wide">

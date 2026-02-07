@@ -114,8 +114,10 @@ pub struct TaxBreakdown {
     pub vda_gains_inr: String,
     /// VDA losses (INR) - displayed but not offset
     pub vda_losses_inr: String,
-    /// Professional income tax (slab-based)
+    /// Professional income tax before rebate (slab-based)
     pub professional_tax_inr: String,
+    /// Section 87A rebate (for Individual/HUF with income ≤ ₹12L)
+    pub section_87a_rebate_inr: String,
     /// VDA tax at 30%
     pub vda_tax_inr: String,
     /// Health & Education Cess (4%)
@@ -299,6 +301,11 @@ const CESS_RATE: f64 = 0.04;
 /// 44ADA presumptive income rate
 const PRESUMPTIVE_44ADA_RATE: f64 = 0.50;
 
+/// Section 87A rebate limit (for Individual/HUF under new regime)
+/// For FY 2025-26 (AY 2026-27): Rebate up to ₹60,000 if taxable income ≤ ₹12 lakh
+const SECTION_87A_INCOME_LIMIT: u64 = 1_200_000; // ₹12 lakh
+const SECTION_87A_REBATE_MAX: u64 = 60_000; // ₹60,000
+
 /// Calculate slab tax for Individual/HUF under new regime
 fn calculate_slab_tax(taxable_income: u64) -> u64 {
     let mut tax: u64 = 0;
@@ -384,18 +391,34 @@ pub fn calculate_tax(input: &TaxInput) -> TaxBreakdown {
     };
 
     // Calculate professional income tax based on user type
-    let professional_tax_inr = match input.user_type {
+    let (professional_tax_before_rebate, section_87a_rebate_inr) = match input.user_type {
         UserType::Individual | UserType::Huf => {
-            calculate_slab_tax(taxable_professional_income_inr as u64) as f64
+            let slab_tax = calculate_slab_tax(taxable_professional_income_inr as u64) as f64;
+
+            // Apply Section 87A rebate for Individual/HUF if taxable income ≤ ₹12 lakh
+            // Note: Rebate applies to total taxable income (professional + VDA)
+            // For simplicity, we apply to professional income only since VDA has flat 30%
+            let rebate = if (taxable_professional_income_inr as u64) <= SECTION_87A_INCOME_LIMIT {
+                // Rebate is min(tax, ₹60,000)
+                slab_tax.min(SECTION_87A_REBATE_MAX as f64)
+            } else {
+                0.0
+            };
+            (slab_tax, rebate)
         }
         UserType::Corporate => {
             let base_tax = taxable_professional_income_inr * CORPORATE_TAX_RATE;
             let surcharge = base_tax * CORPORATE_SURCHARGE_RATE;
-            base_tax + surcharge
+            // No rebate for corporates
+            (base_tax + surcharge, 0.0)
         }
     };
 
+    // Professional tax after rebate
+    let professional_tax_inr = professional_tax_before_rebate - section_87a_rebate_inr;
+
     // VDA tax at 30% (only on gains, losses cannot be offset)
+    // Note: VDA tax doesn't get 87A rebate
     let vda_tax_inr = vda_gains_inr * VDA_TAX_RATE;
 
     // Total tax before cess
@@ -412,7 +435,8 @@ pub fn calculate_tax(input: &TaxInput) -> TaxBreakdown {
         taxable_professional_income_inr: format!("{:.2}", taxable_professional_income_inr),
         vda_gains_inr: format!("{:.2}", vda_gains_inr),
         vda_losses_inr: format!("{:.2}", vda_losses_inr),
-        professional_tax_inr: format!("{:.2}", professional_tax_inr),
+        professional_tax_inr: format!("{:.2}", professional_tax_before_rebate),
+        section_87a_rebate_inr: format!("{:.2}", section_87a_rebate_inr),
         vda_tax_inr: format!("{:.2}", vda_tax_inr),
         cess_inr: format!("{:.2}", cess_inr),
         total_tax_inr: format!("{:.2}", total_tax_inr),

@@ -105,6 +105,11 @@ const NEW_REGIME_SLABS: [(u64, u64, u64); 7] = [
     (2_400_001, u64::MAX, 30),  // Above 24L: 30%
 ];
 
+/// Section 87A rebate limit (for Individual/HUF under new regime)
+/// For FY 2025-26 (AY 2026-27): Rebate up to ₹60,000 if taxable income ≤ ₹12 lakh
+const SECTION_87A_INCOME_LIMIT: u64 = 1_200_000; // ₹12 lakh (in INR, not paisa)
+const SECTION_87A_REBATE_MAX: u64 = 60_000; // ₹60,000 (in INR, not paisa)
+
 fn calculate_slab_tax(taxable_income: u64) -> u64 {
     let mut tax: u64 = 0;
 
@@ -148,7 +153,9 @@ fn amount_to_inr_paisa(
         .unwrap_or(100); // Default $1.00
 
     // amount * usd_price * usd_inr / (100 * 100) to normalize
-    (amount_val * usd_price_cents * usd_inr_rate) / (100 * 100 * 100)
+    // amount_val is scaled by 100, usd_price_cents by 100, usd_inr_rate by 100
+    // Result should be in paisa, so divide by 100^2 (not 100^3)
+    (amount_val * usd_price_cents * usd_inr_rate) / (100 * 100)
 }
 
 fn calculate_tax(input: &TaxInput) -> u64 {
@@ -185,17 +192,37 @@ fn calculate_tax(input: &TaxInput) -> u64 {
     };
 
     // Calculate professional income tax
-    let professional_tax = match input.user_type {
+    let (professional_tax_before_rebate, section_87a_rebate) = match input.user_type {
         UserType::Individual | UserType::Huf => {
-            calculate_slab_tax(taxable_professional_income / 100) * 100 // Convert to/from INR
+            // taxable_professional_income is in paisa, convert to INR for slab calculation
+            let taxable_inr = taxable_professional_income / 100;
+            let slab_tax_inr = calculate_slab_tax(taxable_inr);
+            let slab_tax_paisa = slab_tax_inr * 100;
+
+            // Apply Section 87A rebate if taxable income ≤ ₹12 lakh
+            let rebate_paisa = if taxable_inr <= SECTION_87A_INCOME_LIMIT {
+                // Rebate is min(tax, ₹60,000) - convert to paisa
+                let max_rebate_paisa = SECTION_87A_REBATE_MAX * 100;
+                if slab_tax_paisa < max_rebate_paisa {
+                    slab_tax_paisa
+                } else {
+                    max_rebate_paisa
+                }
+            } else {
+                0
+            };
+            (slab_tax_paisa, rebate_paisa)
         }
         UserType::Corporate => {
-            // 22% + 10% surcharge = 24.2%
-            (taxable_professional_income * 242) / 1000
+            // 22% + 10% surcharge = 24.2%, no rebate for corporates
+            ((taxable_professional_income * 242) / 1000, 0)
         }
     };
 
-    // VDA tax at 30%
+    // Professional tax after rebate
+    let professional_tax = professional_tax_before_rebate - section_87a_rebate;
+
+    // VDA tax at 30% (no rebate for VDA income)
     let vda_tax = (vda_gains * 30) / 100;
 
     // Total before cess

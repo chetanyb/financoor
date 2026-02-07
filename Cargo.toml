@@ -18,19 +18,19 @@ tower-http = { version = "0.6", features = ["cors"] }
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
+# Serialization (pinned to avoid serde::__private removal issue with alloy-consensus 0.14)
+serde = { version = "=1.0.217", features = ["derive"] }
 serde_json = "1.0"
 
 # Date/time
 chrono = "0.4"
 
-# Cryptography & Ethereum
-alloy-sol-types = "0.8"
+# Cryptography & Ethereum (must match sp1-sdk's alloy version)
+alloy-sol-types = "1.5"
 
 # SP1 zkVM
-sp1-sdk = "4.0"
-sp1-zkvm = "4.0"
+sp1-sdk = "4.2"
+sp1-zkvm = "4.2"
 
 # Error handling
 anyhow = "1.0"

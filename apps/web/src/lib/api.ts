@@ -69,6 +69,7 @@ export interface TaxBreakdown {
   vda_gains_inr: string;
   vda_losses_inr: string;
   professional_tax_inr: string;
+  section_87a_rebate_inr: string;
   vda_tax_inr: string;
   cess_inr: string;
   total_tax_inr: string;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ISP1Verifier} from "./ISP1Verifier.sol";
+import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
 /// @title TaxVerifier
 /// @notice Verifies SP1 proofs for tax calculations

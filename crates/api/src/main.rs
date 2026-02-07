@@ -14,7 +14,7 @@ use axum::{
     Json, Router,
 };
 use financoor_core::{calculate_tax, categorize_ledger, LedgerRow, PriceEntry, TaxBreakdown, TaxInput, UserType};
-use sha2::{Sha256, Digest};
+use financoor_prover::TaxProver;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -25,6 +25,7 @@ use crate::ens::EnsResolver;
 struct AppState {
     alchemy: AlchemyClient,
     ens: EnsResolver,
+    prover: TaxProver,
 }
 
 #[derive(Serialize)]
@@ -193,6 +194,7 @@ struct ProofResponse {
 }
 
 async fn generate_proof(
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<ProofRequest>,
 ) -> Result<Json<ProofResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Parse user type
@@ -216,21 +218,7 @@ async fn generate_proof(
         UserType::Corporate => 2u8,
     };
 
-    // Compute ledger commitment (SHA256 hash of JSON-serialized ledger)
-    let ledger_json = serde_json::to_string(&payload.ledger).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to serialize ledger: {}", e),
-            }),
-        )
-    })?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(ledger_json.as_bytes());
-    let ledger_commitment = hex::encode(hasher.finalize());
-
-    // Calculate tax
+    // Build TaxInput for the SP1 prover
     let input = TaxInput {
         user_type,
         wallets: vec![],
@@ -240,40 +228,39 @@ async fn generate_proof(
         use_44ada: payload.use_44ada,
     };
 
-    let breakdown = calculate_tax(&input);
-    let total_tax_inr: f64 = breakdown.total_tax_inr.parse().unwrap_or(0.0);
-    let total_tax_paisa = (total_tax_inr * 100.0) as u64;
+    // Debug: Log categories being sent to prover
+    tracing::info!("=== PROOF REQUEST DEBUG ===");
+    tracing::info!("Ledger rows: {}", input.ledger.len());
+    for (i, row) in input.ledger.iter().enumerate() {
+        tracing::info!("  Row {}: asset={}, amount={}, category={:?}, direction={:?}",
+            i, row.asset, row.amount, row.category, row.direction);
+    }
+    tracing::info!("Prices: {:?}", input.prices);
+    tracing::info!("USD/INR rate: {}", input.usd_inr_rate);
+    tracing::info!("===========================");
 
-    // For hackathon MVP: generate mock proof data
-    // In production, this would call the actual SP1 prover
-    let mock_proof = format!(
-        "MOCK_PROOF_v1:commitment={},tax={},user={},44ada={}",
-        &ledger_commitment[..16],
-        total_tax_paisa,
-        user_type_code,
-        payload.use_44ada
-    );
-
-    // Encode public values (simplified ABI encoding for demo)
-    // Real encoding would use alloy-sol-types
-    let mut public_values = Vec::new();
-    public_values.extend_from_slice(&hex::decode(&ledger_commitment).unwrap_or_default());
-    public_values.extend_from_slice(&[0u8; 24]); // Padding for uint256
-    public_values.extend_from_slice(&total_tax_paisa.to_be_bytes());
-    public_values.push(user_type_code);
-    public_values.push(if payload.use_44ada { 1 } else { 0 });
-
-    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+    // Generate real ZK proof using SP1
+    tracing::info!("Generating SP1 proof...");
+    let proof_artifacts = state.prover.prove(&input).map_err(|e| {
+        tracing::error!("Proof generation failed: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Proof generation failed: {}", e),
+            }),
+        )
+    })?;
+    tracing::info!("SP1 proof generated successfully");
 
     Ok(Json(ProofResponse {
-        ledger_commitment,
-        total_tax_paisa,
+        ledger_commitment: proof_artifacts.ledger_commitment,
+        total_tax_paisa: proof_artifacts.total_tax_paisa,
         user_type_code,
         used_44ada: payload.use_44ada,
-        proof: BASE64.encode(mock_proof.as_bytes()),
-        public_values: BASE64.encode(&public_values),
-        vk_hash: "0x".to_string() + &"0".repeat(64), // Mock VK hash
-        note: "Demo proof - actual SP1 proving requires local prover setup".to_string(),
+        proof: proof_artifacts.proof,
+        public_values: proof_artifacts.public_values,
+        vk_hash: proof_artifacts.vk_hash,
+        note: "Real SP1 ZK proof generated".to_string(),
     }))
 }
 
@@ -359,9 +346,16 @@ async fn main() -> anyhow::Result<()> {
             "demo".to_string()
         });
 
+    // Initialize SP1 prover (this loads proving parameters)
+    tracing::info!("Initializing SP1 prover...");
+    let prover = TaxProver::new()?;
+    tracing::info!("SP1 prover initialized successfully");
+    tracing::info!("VK hash: {}", prover.get_vk_hash());
+
     let state = Arc::new(AppState {
         alchemy: AlchemyClient::new(alchemy_api_key),
         ens: EnsResolver::new(),
+        prover,
     });
 
     // CORS configuration

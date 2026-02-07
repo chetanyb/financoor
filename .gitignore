@@ -59,11 +59,12 @@ verification_key.bin
 *.riscv
 *.bin
 
-# Agent and reserach
+# Agent and research
 AGENTS.md
 PLAN.md
 RESEARCH.md
 TAX_RULES.md
+TASKS.md
 
 # Helper scripts
 scripts/
