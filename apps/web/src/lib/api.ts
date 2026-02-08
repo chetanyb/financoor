@@ -113,7 +113,7 @@ export interface ProofRequest {
   use_44ada: boolean;
 }
 
-export interface ProofResponse {
+export interface ProofResult {
   ledger_commitment: string;
   total_tax_paisa: number;
   user_type_code: number;
@@ -121,10 +121,26 @@ export interface ProofResponse {
   proof: string;
   public_values: string;
   vk_hash: string;
-  note: string;
 }
 
-export async function generateProof(request: ProofRequest): Promise<ProofResponse> {
+export interface ProofSubmitResponse {
+  job_id: string;
+}
+
+export type ProofJobStatus =
+  | { status: "pending" }
+  | { status: "done"; result: ProofResult }
+  | { status: "error"; error: string };
+
+export interface ProofStatusResponse {
+  job_id: string;
+  status: "pending" | "done" | "error";
+  result?: ProofResult;
+  error?: string;
+}
+
+// Submit a proof job (returns immediately with job_id)
+export async function submitProofJob(request: ProofRequest): Promise<string> {
   const response = await fetch(`${API_BASE}/proofs`, {
     method: "POST",
     headers: {
@@ -135,10 +151,57 @@ export async function generateProof(request: ProofRequest): Promise<ProofRespons
 
   if (!response.ok) {
     const error: ApiError = await response.json();
-    throw new Error(error.error || "Failed to generate proof");
+    throw new Error(error.error || "Failed to submit proof job");
+  }
+
+  const data: ProofSubmitResponse = await response.json();
+  return data.job_id;
+}
+
+// Check proof job status
+export async function getProofStatus(jobId: string): Promise<ProofStatusResponse> {
+  const response = await fetch(`${API_BASE}/proofs/${jobId}`);
+
+  if (!response.ok) {
+    const error: ApiError = await response.json();
+    throw new Error(error.error || "Failed to get proof status");
   }
 
   return response.json();
+}
+
+// Poll for proof completion (with callback for status updates)
+export async function generateProofWithPolling(
+  request: ProofRequest,
+  onStatusUpdate?: (status: "pending" | "done" | "error", elapsedSeconds: number) => void,
+  pollIntervalMs: number = 5000
+): Promise<ProofResult> {
+  // Submit the job
+  const jobId = await submitProofJob(request);
+
+  const startTime = Date.now();
+
+  // Poll until done
+  while (true) {
+    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const statusResponse = await getProofStatus(jobId);
+
+    if (statusResponse.status === "done" && statusResponse.result) {
+      onStatusUpdate?.("done", elapsedSeconds);
+      return statusResponse.result;
+    }
+
+    if (statusResponse.status === "error") {
+      onStatusUpdate?.("error", elapsedSeconds);
+      throw new Error(statusResponse.error || "Proof generation failed");
+    }
+
+    // Still pending
+    onStatusUpdate?.("pending", elapsedSeconds);
+
+    // Wait before polling again
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
 }
 
 // ENS resolution types

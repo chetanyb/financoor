@@ -6,7 +6,7 @@
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, EnvProver, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
+use sp1_sdk::{include_elf, EnvProver, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin, SP1VerifyingKey};
 
 /// The ELF binary for the tax_zk SP1 program
 pub const TAX_ZK_ELF: &[u8] = include_elf!("tax-zk");
@@ -29,13 +29,21 @@ pub struct ProofArtifacts {
 /// Prover service that caches proving/verification keys
 pub struct TaxProver {
     client: EnvProver,
+    pk: SP1ProvingKey,
+    vk: SP1VerifyingKey,
 }
 
 impl TaxProver {
-    /// Create a new prover instance
+    /// Create a new prover instance with cached keys
     pub fn new() -> Result<Self> {
         let client = ProverClient::from_env();
-        Ok(Self { client })
+
+        // Setup proving and verification keys once at initialization
+        tracing::info!("Setting up proving/verification keys (one-time)...");
+        let (pk, vk) = client.setup(TAX_ZK_ELF);
+        tracing::info!("Keys setup complete");
+
+        Ok(Self { client, pk, vk })
     }
 
     /// Execute the program without generating a proof (for testing)
@@ -58,15 +66,12 @@ impl TaxProver {
         let mut stdin = SP1Stdin::new();
         stdin.write(&input);
 
-        // Setup proving and verification keys
-        let (pk, vk) = self.client.setup(TAX_ZK_ELF);
-
         tracing::info!("Generating Groth16 proof for on-chain verification...");
 
-        // Generate a Groth16 proof (required for on-chain verification)
+        // Generate a Groth16 proof using cached keys
         let proof: SP1ProofWithPublicValues = self
             .client
-            .prove(&pk, &stdin)
+            .prove(&self.pk, &stdin)
             .groth16()
             .run()?;
 
@@ -97,7 +102,7 @@ impl TaxProver {
         Ok(ProofArtifacts {
             proof: BASE64.encode(&proof_bytes),
             public_values: BASE64.encode(public_values_bytes),
-            vk_hash: vk.bytes32(),
+            vk_hash: self.vk.bytes32(),
             total_tax_paisa,
             ledger_commitment,
         })
@@ -105,8 +110,7 @@ impl TaxProver {
 
     /// Get the verification key hash for the tax program
     pub fn get_vk_hash(&self) -> String {
-        let (_, vk) = self.client.setup(TAX_ZK_ELF);
-        vk.bytes32()
+        self.vk.bytes32()
     }
 }
 

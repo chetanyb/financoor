@@ -5,10 +5,12 @@
 mod alchemy;
 mod ens;
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -22,10 +24,39 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::alchemy::AlchemyClient;
 use crate::ens::EnsResolver;
 
+// ============================================================================
+// PROOF JOB TYPES
+// ============================================================================
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "status")]
+enum ProofJobStatus {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "done")]
+    Done { result: ProofResult },
+    #[serde(rename = "error")]
+    Error { error: String },
+}
+
+#[derive(Clone, Serialize)]
+struct ProofResult {
+    ledger_commitment: String,
+    total_tax_paisa: u64,
+    user_type_code: u8,
+    used_44ada: bool,
+    proof: String,
+    public_values: String,
+    vk_hash: String,
+}
+
+type ProofJobs = Arc<RwLock<HashMap<String, ProofJobStatus>>>;
+
 struct AppState {
     alchemy: AlchemyClient,
     ens: EnsResolver,
-    prover: TaxProver,
+    prover: Arc<TaxProver>,
+    jobs: ProofJobs,
 }
 
 #[derive(Serialize)]
@@ -173,30 +204,21 @@ struct ProofRequest {
 }
 
 #[derive(Serialize)]
-struct ProofResponse {
-    /// Ledger commitment (SHA256 hash, hex encoded)
-    ledger_commitment: String,
-    /// Total tax in paisa
-    total_tax_paisa: u64,
-    /// User type code (0=Individual, 1=HUF, 2=Corporate)
-    user_type_code: u8,
-    /// Whether 44ADA was used
-    used_44ada: bool,
-    /// Mock proof data (base64 encoded)
-    /// In production, this would be actual SP1 proof bytes
-    proof: String,
-    /// Public values (base64 encoded ABI-encoded struct)
-    public_values: String,
-    /// Verification key hash (for on-chain verification)
-    vk_hash: String,
-    /// Note about proof status
-    note: String,
+struct ProofSubmitResponse {
+    job_id: String,
 }
 
-async fn generate_proof(
+#[derive(Serialize)]
+struct ProofStatusResponse {
+    job_id: String,
+    #[serde(flatten)]
+    status: ProofJobStatus,
+}
+
+async fn submit_proof(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ProofRequest>,
-) -> Result<Json<ProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<ProofSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Parse user type
     let user_type = match payload.user_type.as_str() {
         "individual" => UserType::Individual,
@@ -218,6 +240,15 @@ async fn generate_proof(
         UserType::Corporate => 2u8,
     };
 
+    // Generate job ID
+    let job_id = format!("{:x}", rand::random::<u64>());
+
+    // Store job as pending
+    {
+        let mut jobs = state.jobs.write().await;
+        jobs.insert(job_id.clone(), ProofJobStatus::Pending);
+    }
+
     // Build TaxInput for the SP1 prover
     let input = TaxInput {
         user_type,
@@ -230,6 +261,7 @@ async fn generate_proof(
 
     // Debug: Log categories being sent to prover
     tracing::info!("=== PROOF REQUEST DEBUG ===");
+    tracing::info!("Job ID: {}", job_id);
     tracing::info!("Ledger rows: {}", input.ledger.len());
     for (i, row) in input.ledger.iter().enumerate() {
         tracing::info!("  Row {}: asset={}, amount={}, category={:?}, direction={:?}",
@@ -239,29 +271,75 @@ async fn generate_proof(
     tracing::info!("USD/INR rate: {}", input.usd_inr_rate);
     tracing::info!("===========================");
 
-    // Generate real ZK proof using SP1
-    tracing::info!("Generating SP1 proof...");
-    let proof_artifacts = state.prover.prove(&input).map_err(|e| {
-        tracing::error!("Proof generation failed: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Proof generation failed: {}", e),
-            }),
-        )
-    })?;
-    tracing::info!("SP1 proof generated successfully");
+    // Spawn background task to generate proof
+    let prover = state.prover.clone();
+    let jobs = state.jobs.clone();
+    let job_id_clone = job_id.clone();
+    let used_44ada = payload.use_44ada;
 
-    Ok(Json(ProofResponse {
-        ledger_commitment: proof_artifacts.ledger_commitment,
-        total_tax_paisa: proof_artifacts.total_tax_paisa,
-        user_type_code,
-        used_44ada: payload.use_44ada,
-        proof: proof_artifacts.proof,
-        public_values: proof_artifacts.public_values,
-        vk_hash: proof_artifacts.vk_hash,
-        note: "Real SP1 ZK proof generated".to_string(),
-    }))
+    tokio::spawn(async move {
+        tracing::info!("Starting proof generation for job {}", job_id_clone);
+
+        // Run proof generation in blocking task (it's CPU-intensive)
+        let result = tokio::task::spawn_blocking(move || {
+            prover.prove(&input)
+        }).await;
+
+        let status = match result {
+            Ok(Ok(proof_artifacts)) => {
+                tracing::info!("Proof generated successfully for job {}", job_id_clone);
+                ProofJobStatus::Done {
+                    result: ProofResult {
+                        ledger_commitment: proof_artifacts.ledger_commitment,
+                        total_tax_paisa: proof_artifacts.total_tax_paisa,
+                        user_type_code,
+                        used_44ada,
+                        proof: proof_artifacts.proof,
+                        public_values: proof_artifacts.public_values,
+                        vk_hash: proof_artifacts.vk_hash,
+                    },
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::error!("Proof generation failed for job {}: {}", job_id_clone, e);
+                ProofJobStatus::Error {
+                    error: format!("Proof generation failed: {}", e),
+                }
+            }
+            Err(e) => {
+                tracing::error!("Task panic for job {}: {}", job_id_clone, e);
+                ProofJobStatus::Error {
+                    error: format!("Task panic: {}", e),
+                }
+            }
+        };
+
+        // Update job status
+        let mut jobs = jobs.write().await;
+        jobs.insert(job_id_clone, status);
+    });
+
+    Ok(Json(ProofSubmitResponse { job_id }))
+}
+
+async fn get_proof_status(
+    State(state): State<Arc<AppState>>,
+    Path(job_id): Path<String>,
+) -> Result<Json<ProofStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let jobs = state.jobs.read().await;
+
+    match jobs.get(&job_id) {
+        Some(status) => Ok(Json(ProofStatusResponse {
+            job_id,
+            status: status.clone(),
+        })),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Job not found: {}", job_id),
+            }),
+        )),
+    }
 }
 
 // ============================================================================
@@ -348,14 +426,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize SP1 prover (this loads proving parameters)
     tracing::info!("Initializing SP1 prover...");
-    let prover = TaxProver::new()?;
+    let prover = Arc::new(TaxProver::new()?);
     tracing::info!("SP1 prover initialized successfully");
     tracing::info!("VK hash: {}", prover.get_vk_hash());
+
+    // Initialize job storage
+    let jobs: ProofJobs = Arc::new(RwLock::new(HashMap::new()));
 
     let state = Arc::new(AppState {
         alchemy: AlchemyClient::new(alchemy_api_key),
         ens: EnsResolver::new(),
         prover,
+        jobs,
     });
 
     // CORS configuration
@@ -369,7 +451,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health))
         .route("/transfers", post(get_transfers))
         .route("/tax", post(calculate_tax_endpoint))
-        .route("/proofs", post(generate_proof))
+        .route("/proofs", post(submit_proof))
+        .route("/proofs/{job_id}", get(get_proof_status))
         .route("/ens/resolve", post(resolve_ens))
         .layer(cors)
         .with_state(state);

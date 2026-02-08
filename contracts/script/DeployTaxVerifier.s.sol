@@ -8,7 +8,7 @@ contract DeployTaxVerifierScript is Script {
     // Real SP1 Groth16 Verifier Gateway on Sepolia
     address constant SP1_VERIFIER_SEPOLIA = 0x397A5f7f3dBd538f23DE225B51f532c34448dA9B;
 
-    // Real VK hash for tax-zk program (updated after Section 87A rebate fix)
+    // Real VK hash for tax-zk program (SP1 4.2)
     bytes32 constant TAX_ZK_VKEY = 0x00e443478c063561810f469214d4e6d80639bd6da21eab50470b7ca5a52c726c;
 
     function run() external {

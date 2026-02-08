@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "@/lib/session";
-import { calculateTax, generateProof, type TaxBreakdown, type ApiLedgerRow, type PriceEntry } from "@/lib/api";
+import { calculateTax, generateProofWithPolling, type TaxBreakdown, type ApiLedgerRow, type PriceEntry } from "@/lib/api";
 import {
   IconCalculator,
   IconChevronDown,
@@ -80,6 +80,7 @@ export function TaxPanel() {
   const [showDetails, setShowDetails] = useState(false);
   const [showProofDetails, setShowProofDetails] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [proofElapsed, setProofElapsed] = useState(0);
 
   const handleCalculate = async () => {
     if (!session.userType) {
@@ -182,21 +183,27 @@ export function TaxPanel() {
     }
 
     setProofLoading(true);
+    setProofElapsed(0);
     setError(null);
 
     try {
       const request = buildApiRequest();
-      const response = await generateProof(request);
+      const result = await generateProofWithPolling(
+        request,
+        (status, elapsed) => {
+          setProofElapsed(elapsed);
+        }
+      );
 
       setProofArtifacts({
-        ledgerCommitment: response.ledger_commitment,
-        totalTaxPaisa: response.total_tax_paisa,
-        userTypeCode: response.user_type_code,
-        used44ada: response.used_44ada,
-        proof: response.proof,
-        publicValues: response.public_values,
-        vkHash: response.vk_hash,
-        note: response.note,
+        ledgerCommitment: result.ledger_commitment,
+        totalTaxPaisa: result.total_tax_paisa,
+        userTypeCode: result.user_type_code,
+        used44ada: result.used_44ada,
+        proof: result.proof,
+        publicValues: result.public_values,
+        vkHash: result.vk_hash,
+        note: "ZK proof generated",
         generatedAt: Date.now(),
       });
     } catch (err) {
@@ -399,7 +406,7 @@ export function TaxPanel() {
                 {proofLoading ? (
                   <>
                     <IconLoader2 className="w-4 h-4 animate-spin" />
-                    Generating...
+                    Generating... {proofElapsed > 0 && `(${Math.floor(proofElapsed / 60)}:${(proofElapsed % 60).toString().padStart(2, '0')})`}
                   </>
                 ) : (
                   <>
