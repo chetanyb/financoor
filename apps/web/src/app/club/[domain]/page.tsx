@@ -1,0 +1,575 @@
+"use client";
+
+import { useState, useEffect, use } from "react";
+import { useRouter } from "next/navigation";
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { FloatingDock } from "@/components/ui/floating-dock";
+import { HoverCard3D } from "@/components/ui/card-3d";
+import { resolveEnsSubdomains, type EnsSubdomain } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import {
+  ENS_CONTRACTS,
+  ensRegistryConfig,
+  nameWrapperConfig,
+  resolverConfig,
+  namehash,
+  labelhash,
+  namehashToTokenId,
+} from "@/lib/ens-contracts";
+import {
+  IconHome,
+  IconApps,
+  IconTestPipe,
+  IconShieldCheck,
+  IconUsers,
+  IconArrowLeft,
+  IconLoader2,
+  IconRefresh,
+  IconUserPlus,
+  IconDownload,
+  IconCopy,
+  IconCheck,
+  IconExternalLink,
+  IconWallet,
+  IconCrown,
+  IconX,
+  IconAlertCircle,
+} from "@tabler/icons-react";
+import Link from "next/link";
+
+const dockItems = [
+  {
+    title: "Home",
+    icon: <IconHome className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/",
+  },
+  {
+    title: "App",
+    icon: <IconApps className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/app",
+  },
+  {
+    title: "Club",
+    icon: <IconUsers className="h-full w-full text-purple-400" />,
+    href: "/club",
+  },
+  {
+    title: "Demo",
+    icon: <IconTestPipe className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/demo",
+  },
+  {
+    title: "Verify",
+    icon: <IconShieldCheck className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/verify",
+  },
+];
+
+function shortenAddress(address: string): string {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+interface MemberCardProps {
+  member: EnsSubdomain;
+  isOwner?: boolean;
+  onCopy: (text: string) => void;
+  copied: string | null;
+}
+
+function MemberCard({ member, isOwner, onCopy, copied }: MemberCardProps) {
+  return (
+    <HoverCard3D>
+      <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-800 hover:border-purple-800/50 transition-colors h-full">
+        <div className="flex items-start justify-between mb-3">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg">
+            {member.label.charAt(0).toUpperCase()}
+          </div>
+          {isOwner && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs">
+              <IconCrown className="w-3 h-3" />
+              Owner
+            </span>
+          )}
+        </div>
+
+        <h3 className="font-semibold text-white mb-1">
+          {member.label}
+        </h3>
+        <p className="text-sm text-neutral-500 mb-3 truncate">
+          {member.name}
+        </p>
+
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-xs text-neutral-400 font-mono truncate">
+            {shortenAddress(member.address)}
+          </code>
+          <button
+            onClick={() => onCopy(member.address)}
+            className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
+          >
+            {copied === member.address ? (
+              <IconCheck className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <IconCopy className="w-4 h-4 text-neutral-500" />
+            )}
+          </button>
+          <a
+            href={`https://sepolia.etherscan.io/address/${member.address}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
+          >
+            <IconExternalLink className="w-4 h-4 text-neutral-500" />
+          </a>
+        </div>
+      </div>
+    </HoverCard3D>
+  );
+}
+
+interface AddMemberModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  parentDomain: string;
+  parentNode: `0x${string}`;
+  onSuccess: () => void;
+}
+
+function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }: AddMemberModalProps) {
+  const [label, setLabel] = useState("");
+  const [address, setAddress] = useState("");
+  const { address: connectedAddress } = useAccount();
+
+  const { writeContract, data: txHash, isPending, error: writeError, reset } = useWriteContract();
+
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+    hash: txHash,
+  });
+
+  useEffect(() => {
+    if (isSuccess) {
+      onSuccess();
+      setTimeout(() => {
+        onClose();
+        setLabel("");
+        setAddress("");
+        reset();
+      }, 2000);
+    }
+  }, [isSuccess, onSuccess, onClose, reset]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!label.trim() || !address.trim()) return;
+
+    // Use max uint64 for expiry (effectively no expiry for demo)
+    const maxExpiry = BigInt("18446744073709551615");
+
+    writeContract({
+      ...nameWrapperConfig,
+      functionName: "setSubnodeRecord",
+      args: [
+        parentNode,
+        label.toLowerCase().trim(),
+        address as `0x${string}`,
+        ENS_CONTRACTS.resolver,
+        BigInt(0), // TTL
+        0, // Fuses (no restrictions)
+        maxExpiry,
+      ],
+    });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/80" onClick={onClose} />
+      <div className="relative w-full max-w-md mx-4 p-6 rounded-2xl bg-neutral-900 border border-neutral-800">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-semibold text-white">Add Member</h3>
+          <button onClick={onClose} className="p-1 hover:bg-neutral-800 rounded-lg">
+            <IconX className="w-5 h-5 text-neutral-400" />
+          </button>
+        </div>
+
+        {isSuccess ? (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+              <IconCheck className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h4 className="text-lg font-semibold text-white mb-2">Member Added!</h4>
+            <p className="text-neutral-400 text-sm">
+              {label}.{parentDomain} has been created
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm text-neutral-400 mb-2">
+                Subdomain Label
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
+                  placeholder="alice"
+                  className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white placeholder:text-neutral-500 focus:outline-none focus:border-purple-600"
+                />
+                <span className="text-neutral-500">.{parentDomain}</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm text-neutral-400 mb-2">
+                Wallet Address
+              </label>
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="0x..."
+                className="w-full px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white font-mono text-sm placeholder:text-neutral-500 focus:outline-none focus:border-purple-600"
+              />
+              {connectedAddress && (
+                <button
+                  type="button"
+                  onClick={() => setAddress(connectedAddress)}
+                  className="mt-2 text-xs text-purple-400 hover:text-purple-300"
+                >
+                  Use connected wallet
+                </button>
+              )}
+            </div>
+
+            {writeError && (
+              <div className="p-3 rounded-lg bg-red-950/50 border border-red-800/50 text-red-400 text-sm flex items-start gap-2">
+                <IconAlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span className="break-all">{writeError.message}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isPending || isConfirming || !label.trim() || !address.trim()}
+              className="w-full py-3 rounded-lg font-medium bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
+            >
+              {isPending ? (
+                <>
+                  <IconLoader2 className="w-5 h-5 animate-spin" />
+                  Confirm in Wallet
+                </>
+              ) : isConfirming ? (
+                <>
+                  <IconLoader2 className="w-5 h-5 animate-spin" />
+                  Creating Member...
+                </>
+              ) : (
+                <>
+                  <IconUserPlus className="w-5 h-5" />
+                  Create Subdomain
+                </>
+              )}
+            </button>
+
+            <p className="text-xs text-neutral-500 text-center">
+              This will create an on-chain transaction using NameWrapper
+            </p>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function ClubDetailPage({
+  params,
+}: {
+  params: Promise<{ domain: string }>;
+}) {
+  const { domain } = use(params);
+  const router = useRouter();
+  const decodedDomain = decodeURIComponent(domain);
+  const { address, isConnected } = useAccount();
+  const { addWallet, session } = useSession();
+
+  const [members, setMembers] = useState<EnsSubdomain[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [importCount, setImportCount] = useState<number | null>(null);
+
+  const parentNode = namehash(decodedDomain) as `0x${string}`;
+
+  // Check if connected wallet owns the domain
+  const { data: domainOwner } = useReadContract({
+    ...ensRegistryConfig,
+    functionName: "owner",
+    args: [parentNode],
+  });
+
+  const isOwner = address && domainOwner && address.toLowerCase() === (domainOwner as string).toLowerCase();
+
+  const fetchMembers = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await resolveEnsSubdomains(decodedDomain);
+      setMembers(result.subdomains);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch members");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMembers();
+  }, [decodedDomain]);
+
+  const copyToClipboard = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(text);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleImportAll = () => {
+    let imported = 0;
+
+    members.forEach((member) => {
+      // Check if wallet already exists
+      const exists = session.wallets.some(
+        (w) => w.address.toLowerCase() === member.address.toLowerCase()
+      );
+
+      if (!exists) {
+        addWallet(member.address, member.name);
+        imported++;
+      }
+    });
+
+    setImportCount(imported);
+    setTimeout(() => setImportCount(null), 3000);
+  };
+
+  return (
+    <div className="min-h-screen w-full bg-black/[0.96] antialiased relative">
+      {/* Floating dock navigation */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+        <FloatingDock items={dockItems} />
+      </div>
+
+      {/* Main content */}
+      <div className="max-w-6xl mx-auto px-4 py-16 pb-32">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/club"
+              className="p-2 rounded-lg hover:bg-neutral-800 transition-colors"
+            >
+              <IconArrowLeft className="w-5 h-5 text-neutral-400" />
+            </Link>
+            <div>
+              <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+                {decodedDomain}
+                {isOwner && (
+                  <span className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-sm font-normal flex items-center gap-1">
+                    <IconCrown className="w-4 h-4" />
+                    You own this
+                  </span>
+                )}
+              </h1>
+              <p className="text-neutral-500 mt-1">
+                {members.length} member{members.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <ConnectButton.Custom>
+              {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
+                const connected = mounted && account && chain;
+                return (
+                  <button
+                    onClick={connected ? openAccountModal : openConnectModal}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      connected
+                        ? "bg-emerald-600/20 text-emerald-400 border border-emerald-600/30"
+                        : "bg-purple-600 hover:bg-purple-500 text-white"
+                    }`}
+                  >
+                    <IconWallet className="w-4 h-4" />
+                    {connected
+                      ? shortenAddress(account.address)
+                      : "Connect Wallet"}
+                  </button>
+                );
+              }}
+            </ConnectButton.Custom>
+          </div>
+        </div>
+
+        {/* Action bar */}
+        <div className="flex flex-wrap items-center gap-3 mb-8">
+          <button
+            onClick={fetchMembers}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <IconRefresh className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+
+          {isOwner && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-colors"
+            >
+              <IconUserPlus className="w-4 h-4" />
+              Add Member
+            </button>
+          )}
+
+          {members.length > 0 && (
+            <button
+              onClick={handleImportAll}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+            >
+              <IconDownload className="w-4 h-4" />
+              Import to Financoor
+            </button>
+          )}
+
+          {importCount !== null && (
+            <span className="px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm">
+              Imported {importCount} wallet{importCount !== 1 ? "s" : ""}!
+            </span>
+          )}
+
+          <Link
+            href="/app"
+            className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg border border-neutral-700 hover:border-neutral-600 text-neutral-300 hover:text-white text-sm font-medium transition-colors"
+          >
+            <IconApps className="w-4 h-4" />
+            Go to Tax App
+          </Link>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Members</p>
+            <p className="text-2xl font-bold text-white">{members.length}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Unique Addresses</p>
+            <p className="text-2xl font-bold text-purple-400">
+              {new Set(members.map((m) => m.address.toLowerCase())).size}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">In Session</p>
+            <p className="text-2xl font-bold text-emerald-400">
+              {members.filter((m) =>
+                session.wallets.some(
+                  (w) => w.address.toLowerCase() === m.address.toLowerCase()
+                )
+              ).length}
+            </p>
+          </div>
+          <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Network</p>
+            <p className="text-lg font-medium text-neutral-300">Sepolia</p>
+          </div>
+        </div>
+
+        {/* Members grid */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <IconLoader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+        ) : error ? (
+          <div className="p-6 rounded-2xl bg-red-950/30 border border-red-800/50 text-center">
+            <IconAlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+            <p className="text-red-400">{error}</p>
+            <button
+              onClick={fetchMembers}
+              className="mt-4 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : members.length === 0 ? (
+          <div className="p-8 rounded-2xl bg-neutral-900/50 border border-neutral-800 text-center">
+            <IconUsers className="w-12 h-12 text-neutral-600 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-neutral-300 mb-2">
+              No members yet
+            </h3>
+            <p className="text-neutral-500 mb-4">
+              This club doesn&apos;t have any subdomains with resolved addresses.
+            </p>
+            {isOwner && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium"
+              >
+                Add First Member
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {members.map((member) => (
+              <MemberCard
+                key={member.name}
+                member={member}
+                isOwner={domainOwner && member.address.toLowerCase() === (domainOwner as string).toLowerCase()}
+                onCopy={copyToClipboard}
+                copied={copied}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Info section */}
+        <div className="mt-12 p-6 rounded-2xl bg-neutral-900/50 border border-neutral-800">
+          <h3 className="text-lg font-semibold text-white mb-4">About ENS Clubs</h3>
+          <div className="grid md:grid-cols-2 gap-6 text-sm text-neutral-400">
+            <div>
+              <h4 className="font-medium text-neutral-200 mb-2">What are ENS Clubs?</h4>
+              <p>
+                ENS Clubs use ENS subdomains to organize wallets under a common root domain.
+                For example, <code className="text-purple-400">alice.family.eth</code> and{" "}
+                <code className="text-purple-400">bob.family.eth</code> are members of the{" "}
+                <code className="text-purple-400">family.eth</code> club.
+              </p>
+            </div>
+            <div>
+              <h4 className="font-medium text-neutral-200 mb-2">Tax Analysis</h4>
+              <p>
+                Import all members to Financoor with one click, then sync transactions
+                and calculate taxes for your entire organization. Perfect for DAOs,
+                family offices, and investment clubs.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Member Modal */}
+      <AddMemberModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        parentDomain={decodedDomain}
+        parentNode={parentNode}
+        onSuccess={fetchMembers}
+      />
+    </div>
+  );
+}

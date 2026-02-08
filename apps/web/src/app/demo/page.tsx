@@ -15,6 +15,7 @@ import {
   IconTrendingDown,
   IconPlant,
   IconCoins,
+  IconUsers,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -43,6 +44,11 @@ const dockItems = [
     title: "App",
     icon: <IconApps className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
     href: "/app",
+  },
+  {
+    title: "Club",
+    icon: <IconUsers className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/club",
   },
   {
     title: "Demo",
