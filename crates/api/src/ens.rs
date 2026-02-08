@@ -1,14 +1,20 @@
 //! ENS (Ethereum Name Service) subdomain resolver
 //!
 //! Resolves a root ENS name to its subdomains and their addresses
-//! via the ENS subgraph on mainnet.
+//! via the ENS subgraph.
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-/// ENS Subgraph URL (mainnet)
-const ENS_SUBGRAPH_URL: &str =
-    "https://api.thegraph.com/subgraphs/name/ensdomains/ens";
+/// ENS Subgraph URL - uses Sepolia by default for testnet development
+/// Mainnet: https://api.thegraph.com/subgraphs/name/ensdomains/ens
+/// Sepolia: https://api.studio.thegraph.com/query/49574/enssepolia/version/latest
+fn get_subgraph_url() -> String {
+    std::env::var("ENS_SUBGRAPH_URL").unwrap_or_else(|_| {
+        // Default to Sepolia for development/hackathon
+        "https://api.studio.thegraph.com/query/49574/enssepolia/version/latest".to_string()
+    })
+}
 
 /// Resolved subdomain with its address
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +93,8 @@ impl EnsResolver {
     pub async fn resolve_subdomains(&self, root_name: &str) -> Result<Vec<ResolvedSubdomain>> {
         // Normalize the root name
         let root_name = root_name.trim().to_lowercase();
+        let subgraph_url = get_subgraph_url();
+        eprintln!("[ENS] Resolving '{}' via subgraph: {}", root_name, subgraph_url);
 
         // GraphQL query to get domain and its subdomains
         let query = r#"
@@ -115,7 +123,7 @@ impl EnsResolver {
 
         let response: GraphQLResponse = self
             .client
-            .post(ENS_SUBGRAPH_URL)
+            .post(&subgraph_url)
             .json(&request)
             .send()
             .await?
@@ -156,12 +164,8 @@ impl EnsResolver {
             }
         }
 
-        // Filter to only include subdomains with addresses
-        let results: Vec<ResolvedSubdomain> = results
-            .into_iter()
-            .filter(|r| r.address.is_some())
-            .collect();
-
+        // Return all subdomains, including those without resolved addresses
+        // The frontend will handle displaying them appropriately
         Ok(results)
     }
 }
