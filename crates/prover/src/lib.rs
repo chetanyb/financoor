@@ -91,8 +91,8 @@ impl TaxProver {
             0
         };
 
-        // Serialize proof
-        let proof_bytes = bincode::serialize(&proof)?;
+        // Get raw proof bytes for on-chain verification
+        let proof_bytes = proof.bytes();
 
         Ok(ProofArtifacts {
             proof: BASE64.encode(&proof_bytes),
@@ -101,18 +101,6 @@ impl TaxProver {
             total_tax_paisa,
             ledger_commitment,
         })
-    }
-
-    /// Verify a proof
-    pub fn verify(&self, artifacts: &ProofArtifacts) -> Result<bool> {
-        let proof_bytes = BASE64.decode(&artifacts.proof)?;
-        let proof: SP1ProofWithPublicValues = bincode::deserialize(&proof_bytes)?;
-
-        let (_, vk) = self.client.setup(TAX_ZK_ELF);
-
-        self.client.verify(&proof, &vk)?;
-
-        Ok(true)
     }
 
     /// Get the verification key hash for the tax program

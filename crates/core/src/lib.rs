@@ -143,10 +143,11 @@ sol! {
 
 /// Known demo contract addresses on Sepolia (lowercase)
 pub mod demo_contracts {
-    pub const PROFIT_MACHINE: &str = ""; // To be filled after deployment
-    pub const LOSS_MACHINE: &str = "";   // To be filled after deployment
-    pub const YIELD_FARM: &str = "";     // To be filled after deployment
-    pub const DEMO_TOKEN: &str = "";     // To be filled after deployment
+    pub const DEMO_TOKEN: &str = "0x5815605f56c90e2b6467f489bd3b6e18bba1aff1";
+    pub const PROFIT_MACHINE: &str = "0xb99db0d6a22eeb129e5aebb4c94e46cb1640f465";
+    pub const LOSS_MACHINE: &str = "0x754f565155b363f94657ac7e106e361297cd6ebe";
+    pub const YIELD_FARM: &str = "0xfd3e2e9db59b9611fa14560c79316f6ce6714f9b";
+    pub const TAX_VERIFIER: &str = "0x1e0b2f7d1b1cef9aa03dad058b6665ca5ab2622c";
 }
 
 /// Result of categorization with confidence score

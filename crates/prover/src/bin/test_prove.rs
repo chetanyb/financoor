@@ -73,16 +73,13 @@ fn main() -> anyhow::Result<()> {
     println!("Total Tax (paisa): {}", artifacts.total_tax_paisa);
     println!("Total Tax (INR): ₹{:.2}", artifacts.total_tax_paisa as f64 / 100.0);
     println!("VK Hash: {}", artifacts.vk_hash);
-    println!("Proof size: {} bytes", artifacts.proof.len());
+    println!("Proof size: {} bytes (base64)", artifacts.proof.len());
+    println!("Public values size: {} bytes (base64)", artifacts.public_values.len());
     println!();
 
-    // Verify proof locally
-    println!("Verifying proof locally...");
-    let verify_start = std::time::Instant::now();
-    let valid = prover.verify(&artifacts)?;
-    let verify_elapsed = verify_start.elapsed();
-
-    println!("Verification: {} (took {:?})", if valid { "✓ VALID" } else { "✗ INVALID" }, verify_elapsed);
+    // Note: Verification happens on-chain via TaxVerifier contract
+    println!("Proof ready for on-chain verification!");
+    println!("Submit to TaxVerifier.verifyTaxProof(proofBytes, publicValues)");
 
     Ok(())
 }
