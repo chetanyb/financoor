@@ -36,18 +36,18 @@ const dockItems = [
   },
   {
     title: "Club",
-    icon: <IconUsers className="h-full w-full text-purple-400" />,
+    icon: <IconUsers className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
     href: "/club",
-  },
-  {
-    title: "Demo",
-    icon: <IconTestPipe className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
-    href: "/demo",
   },
   {
     title: "Verify",
     icon: <IconShieldCheck className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
     href: "/verify",
+  },
+    {
+    title: "Demo",
+    icon: <IconTestPipe className="h-full w-full text-neutral-500 dark:text-neutral-300" />,
+    href: "/demo",
   },
 ];
 
@@ -128,7 +128,7 @@ export default function ClubPage() {
       />
 
       {/* Floating dock navigation */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+      <div className="fixed left-4 top-1/2 -translate-y-1/2 z-50">
         <FloatingDock items={dockItems} />
       </div>
 

@@ -52,7 +52,7 @@ export default function Home() {
       <Spotlight className="-top-40 left-0 md:left-60 md:-top-20" fill="white" />
 
       {/* Floating dock navigation */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+      <div className="fixed left-4 top-1/2 -translate-y-1/2 z-50">
         <FloatingDock items={dockItems} />
       </div>
 
