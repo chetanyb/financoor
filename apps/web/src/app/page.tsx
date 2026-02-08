@@ -152,25 +152,78 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Features */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full px-4">
-          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center mb-3">
-              <IconWallet className="w-5 h-5 text-blue-400" />
+        {/* ENS Club Hub Section */}
+        <div className="mt-16 max-w-4xl w-full px-4">
+          <div className="rounded-2xl border border-purple-900/50 bg-gradient-to-br from-purple-950/30 to-neutral-900/50 p-8">
+            <div className="flex flex-col md:flex-row items-start gap-6">
+              <div className="w-16 h-16 rounded-2xl bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                <IconUsers className="w-8 h-8 text-purple-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-2xl font-bold text-neutral-100 mb-2">
+                  ENS Club Hub
+                </h3>
+                <p className="text-neutral-400 mb-4">
+                  Use ENS subdomains as your organizational membership registry. Create clubs like{" "}
+                  <code className="text-purple-400 bg-purple-950/50 px-1.5 py-0.5 rounded">family.eth</code>{" "}
+                  and add members as subdomains like{" "}
+                  <code className="text-purple-400 bg-purple-950/50 px-1.5 py-0.5 rounded">alice.family.eth</code>.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                  <div className="flex items-center gap-2 text-sm text-neutral-300">
+                    <IconWorld className="w-4 h-4 text-purple-400" />
+                    <span>Register ENS domains</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-neutral-300">
+                    <IconUsers className="w-4 h-4 text-purple-400" />
+                    <span>Create member subdomains</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-neutral-300">
+                    <IconCalculator className="w-4 h-4 text-purple-400" />
+                    <span>One-click tax sync</span>
+                  </div>
+                </div>
+                <Link
+                  href="/club"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-medium transition-colors"
+                >
+                  <IconUsers className="w-4 h-4" />
+                  Explore Club Hub
+                </Link>
+              </div>
             </div>
-            <h4 className="font-medium text-neutral-200 mb-2">Multi-Wallet Support</h4>
+          </div>
+        </div>
+
+        {/* Features */}
+        <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl w-full px-4">
+          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
+            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center mb-3">
+              <IconUsers className="w-5 h-5 text-purple-400" />
+            </div>
+            <h4 className="font-medium text-neutral-200 mb-2">ENS Clubs</h4>
             <p className="text-sm text-neutral-500">
-              Import wallets by address or resolve from ENS root names to discover family subdomains.
+              Manage DAOs, families, or investment clubs using ENS subdomains as membership.
             </p>
           </div>
 
           <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center mb-3">
-              <IconCalculator className="w-5 h-5 text-purple-400" />
+            <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center mb-3">
+              <IconWallet className="w-5 h-5 text-blue-400" />
+            </div>
+            <h4 className="font-medium text-neutral-200 mb-2">Multi-Wallet</h4>
+            <p className="text-sm text-neutral-500">
+              Import wallets by address or resolve all members from an ENS root name.
+            </p>
+          </div>
+
+          <div className="p-5 rounded-xl border border-neutral-800 bg-neutral-900/30">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center mb-3">
+              <IconCalculator className="w-5 h-5 text-amber-400" />
             </div>
             <h4 className="font-medium text-neutral-200 mb-2">Indian Tax Rules</h4>
             <p className="text-sm text-neutral-500">
-              Section 115BBH for VDA at 30%, Section 115BAC new regime slabs, and Section 44ADA presumptive.
+              Section 115BBH (30% VDA), Section 115BAC slabs, and Section 44ADA presumptive.
             </p>
           </div>
 
@@ -178,9 +231,9 @@ export default function Home() {
             <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center mb-3">
               <IconShieldCheck className="w-5 h-5 text-emerald-400" />
             </div>
-            <h4 className="font-medium text-neutral-200 mb-2">SP1 Zero-Knowledge</h4>
+            <h4 className="font-medium text-neutral-200 mb-2">ZK Proofs</h4>
             <p className="text-sm text-neutral-500">
-              Generate cryptographic proofs of your tax calculation, verifiable on-chain without revealing data.
+              SP1 zkVM proofs verify your tax calculation on-chain without revealing data.
             </p>
           </div>
         </div>

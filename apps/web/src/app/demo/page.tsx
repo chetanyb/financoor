@@ -598,7 +598,26 @@ export default function DemoPage() {
             <h1 className="text-3xl font-bold text-white">Demo Contracts</h1>
             <p className="text-neutral-500 mt-1">Generate on-chain activity on Sepolia</p>
           </div>
-          <ConnectButton />
+          <ConnectButton.Custom>
+            {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
+              const connected = mounted && account && chain;
+              return (
+                <button
+                  onClick={connected ? openAccountModal : openConnectModal}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    connected
+                      ? "bg-emerald-600/20 text-emerald-400 border border-emerald-600/30"
+                      : "bg-violet-600 hover:bg-violet-500 text-white"
+                  }`}
+                >
+                  <IconWallet className="w-4 h-4" />
+                  {connected
+                    ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}`
+                    : "Connect Wallet"}
+                </button>
+              );
+            }}
+          </ConnectButton.Custom>
         </div>
 
         {!isConnected ? (
@@ -608,7 +627,17 @@ export default function DemoPage() {
             <p className="text-neutral-500 mb-6">
               Connect your wallet to interact with demo contracts on Sepolia
             </p>
-            <ConnectButton />
+            <ConnectButton.Custom>
+              {({ openConnectModal }) => (
+                <button
+                  onClick={openConnectModal}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                >
+                  <IconWallet className="w-4 h-4" />
+                  Connect Wallet
+                </button>
+              )}
+            </ConnectButton.Custom>
           </div>
         ) : (
           <div className="space-y-6">

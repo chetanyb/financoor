@@ -294,7 +294,17 @@ function CreateClubModal({ isOpen, onClose, onSuccess }: CreateClubModalProps) {
           <div className="text-center py-8">
             <IconWallet className="w-12 h-12 text-neutral-600 mx-auto mb-4" />
             <p className="text-neutral-400 mb-4">Connect your wallet to register an ENS domain</p>
-            <ConnectButton />
+            <ConnectButton.Custom>
+              {({ openConnectModal }) => (
+                <button
+                  onClick={openConnectModal}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                >
+                  <IconWallet className="w-4 h-4" />
+                  Connect Wallet
+                </button>
+              )}
+            </ConnectButton.Custom>
           </div>
         ) : step === "success" ? (
           <div className="text-center py-8">
@@ -567,7 +577,26 @@ export default function ClubPage() {
 
       {/* Wallet connect button */}
       <div className="fixed top-4 right-4 z-50">
-        <ConnectButton />
+        <ConnectButton.Custom>
+          {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
+            const connected = mounted && account && chain;
+            return (
+              <button
+                onClick={connected ? openAccountModal : openConnectModal}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  connected
+                    ? "bg-emerald-600/20 text-emerald-400 border border-emerald-600/30"
+                    : "bg-violet-600 hover:bg-violet-500 text-white"
+                }`}
+              >
+                <IconWallet className="w-4 h-4" />
+                {connected
+                  ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}`
+                  : "Connect Wallet"}
+              </button>
+            );
+          }}
+        </ConnectButton.Custom>
       </div>
 
       {/* Hero Section */}
