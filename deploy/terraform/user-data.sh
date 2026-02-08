@@ -41,6 +41,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli co
 systemctl enable docker
 systemctl start docker
 
+# Pre-pull SP1 prover image to avoid first-run delays
+docker pull ghcr.io/succinctlabs/sp1-gnark:v4.0.0-rc.3 || true
+
 # Create app user
 echo "[4/9] Creating app user..."
 useradd -m -s /bin/bash financoor || true
@@ -58,9 +61,12 @@ source "$HOME/.cargo/env"
 
 # Install SP1 toolchain
 echo "[6/9] Installing SP1 toolchain..."
-curl -L https://sp1up.dev | bash
+curl -L https://sp1up.dev | bash || curl -L https://raw.githubusercontent.com/succinctlabs/sp1/main/sp1up/install | bash
 export PATH="$HOME/.sp1/bin:$PATH"
 $HOME/.sp1/bin/sp1up
+
+# Verify succinct toolchain installed
+rustup toolchain list | grep -q succinct || echo "WARNING: succinct toolchain not found"
 
 # Clone repository
 echo "[7/9] Cloning repository..."
@@ -106,9 +112,8 @@ ExecStart=/home/financoor/financoor/target/release/api
 Restart=always
 RestartSec=5
 
-# Security hardening (relaxed for Docker access)
+# Security hardening (relaxed for Docker/SP1 access)
 NoNewPrivileges=false
-PrivateTmp=true
 
 # Performance
 LimitNOFILE=65535
