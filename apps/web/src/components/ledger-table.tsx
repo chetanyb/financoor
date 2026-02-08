@@ -9,6 +9,8 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconX,
+  IconChevronLeft,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -194,10 +196,14 @@ function CategorySelect({ row, effectiveCategory, hasOverride, onOverride, onCle
   );
 }
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export function LedgerTable() {
   const { session, setCategoryOverride, removeCategoryOverride } = useSession();
   const [activeTab, setActiveTab] = useState<TabFilter>("all");
   const [walletFilter, setWalletFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Build a map of overrides for quick lookup
   const overrideMap = new Map<string, Category>();
@@ -238,6 +244,28 @@ export function LedgerTable() {
     return getEffectiveCategory(row) === activeTab;
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredLedger.length / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, filteredLedger.length);
+  const paginatedLedger = filteredLedger.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  const handleTabChange = (tab: TabFilter) => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+  };
+
+  const handleWalletFilterChange = (wallet: string) => {
+    setWalletFilter(wallet);
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
   const wallets = ["all", ...new Set(session.ledger.map((r) => r.ownerWallet))];
 
   if (session.ledger.length === 0) {
@@ -260,7 +288,7 @@ export function LedgerTable() {
           tab="all"
           label="All"
           count={counts.all}
-          onClick={() => setActiveTab("all")}
+          onClick={() => handleTabChange("all")}
         />
         {counts.review > 0 && (
           <CategoryTab
@@ -268,7 +296,7 @@ export function LedgerTable() {
             tab="review"
             label="Needs Review"
             count={counts.review}
-            onClick={() => setActiveTab("review")}
+            onClick={() => handleTabChange("review")}
             variant="warning"
           />
         )}
@@ -278,42 +306,42 @@ export function LedgerTable() {
           tab="income"
           label="Income"
           count={counts.income}
-          onClick={() => setActiveTab("income")}
+          onClick={() => handleTabChange("income")}
         />
         <CategoryTab
           active={activeTab}
           tab="gains"
           label="Gains"
           count={counts.gains}
-          onClick={() => setActiveTab("gains")}
+          onClick={() => handleTabChange("gains")}
         />
         <CategoryTab
           active={activeTab}
           tab="losses"
           label="Losses"
           count={counts.losses}
-          onClick={() => setActiveTab("losses")}
+          onClick={() => handleTabChange("losses")}
         />
         <CategoryTab
           active={activeTab}
           tab="fees"
           label="Fees"
           count={counts.fees}
-          onClick={() => setActiveTab("fees")}
+          onClick={() => handleTabChange("fees")}
         />
         <CategoryTab
           active={activeTab}
           tab="internal"
           label="Internal"
           count={counts.internal}
-          onClick={() => setActiveTab("internal")}
+          onClick={() => handleTabChange("internal")}
         />
         <CategoryTab
           active={activeTab}
           tab="unknown"
           label="Unknown"
           count={counts.unknown}
-          onClick={() => setActiveTab("unknown")}
+          onClick={() => handleTabChange("unknown")}
         />
       </div>
 
@@ -324,7 +352,7 @@ export function LedgerTable() {
             <span className="text-xs text-neutral-500">Wallet:</span>
             <select
               value={walletFilter}
-              onChange={(e) => setWalletFilter(e.target.value)}
+              onChange={(e) => handleWalletFilterChange(e.target.value)}
               className="text-xs bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-neutral-300 focus:outline-none font-mono"
             >
               {wallets.map((w) => (
@@ -336,8 +364,23 @@ export function LedgerTable() {
           </div>
         )}
 
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-neutral-500">Show:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+            className="text-xs bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-neutral-300 focus:outline-none"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <span className="text-xs text-neutral-500 ml-auto">
-          {filteredLedger.length} of {session.ledger.length} transactions
+          {filteredLedger.length > 0 ? `${startIndex + 1}-${endIndex}` : "0"} of {filteredLedger.length} transactions
           {session.categoryOverrides.length > 0 && (
             <span className="text-purple-400 ml-2">
               ({session.categoryOverrides.length} override{session.categoryOverrides.length !== 1 ? "s" : ""})
@@ -362,7 +405,7 @@ export function LedgerTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {filteredLedger.map((row) => {
+              {paginatedLedger.map((row) => {
                 const effectiveCategory = getEffectiveCategory(row);
                 const hasOverride = overrideMap.has(row.id);
                 const isReviewNeeded = needsReview(row);
@@ -427,6 +470,76 @@ export function LedgerTable() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-neutral-800 bg-neutral-800/30">
+            <div className="text-xs text-neutral-500">
+              Page {currentPage} of {totalPages}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-2 py-1 text-xs text-neutral-400 hover:text-white hover:bg-neutral-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+              >
+                <IconChevronLeft className="w-4 h-4" />
+              </button>
+
+              {/* Page numbers */}
+              <div className="flex items-center gap-1 mx-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={cn(
+                        "w-7 h-7 text-xs rounded transition-colors",
+                        currentPage === pageNum
+                          ? "bg-blue-600 text-white"
+                          : "text-neutral-400 hover:text-white hover:bg-neutral-700"
+                      )}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1 text-neutral-400 hover:text-white hover:bg-neutral-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+              >
+                <IconChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-2 py-1 text-xs text-neutral-400 hover:text-white hover:bg-neutral-700 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-neutral-400"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Review hint */}
@@ -437,7 +550,7 @@ export function LedgerTable() {
             <strong>{counts.review} transaction{counts.review !== 1 ? "s" : ""}</strong> need{counts.review === 1 ? "s" : ""} review.
             {" "}
             <button
-              onClick={() => setActiveTab("review")}
+              onClick={() => handleTabChange("review")}
               className="underline hover:text-yellow-300"
             >
               Review now
