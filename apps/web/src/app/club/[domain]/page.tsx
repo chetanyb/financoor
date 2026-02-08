@@ -78,17 +78,28 @@ interface MemberCardProps {
 }
 
 function MemberCard({ member, isOwner, onCopy, copied }: MemberCardProps) {
+  const hasAddress = member.address !== null;
+
   return (
     <HoverCard3D>
       <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-800 hover:border-purple-800/50 transition-colors h-full">
         <div className="flex items-start justify-between mb-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-lg">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg ${
+            hasAddress
+              ? "bg-gradient-to-br from-purple-500 to-pink-500"
+              : "bg-gradient-to-br from-neutral-600 to-neutral-700"
+          }`}>
             {member.label.charAt(0).toUpperCase()}
           </div>
           {isOwner && (
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs">
               <IconCrown className="w-3 h-3" />
               Owner
+            </span>
+          )}
+          {!hasAddress && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-700/50 text-neutral-400 text-xs">
+              No addr set
             </span>
           )}
         </div>
@@ -100,29 +111,35 @@ function MemberCard({ member, isOwner, onCopy, copied }: MemberCardProps) {
           {member.name}
         </p>
 
-        <div className="flex items-center gap-2">
-          <code className="flex-1 text-xs text-neutral-400 font-mono truncate">
-            {shortenAddress(member.address)}
-          </code>
-          <button
-            onClick={() => onCopy(member.address)}
-            className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
-          >
-            {copied === member.address ? (
-              <IconCheck className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <IconCopy className="w-4 h-4 text-neutral-500" />
-            )}
-          </button>
-          <a
-            href={`https://sepolia.etherscan.io/address/${member.address}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
-          >
-            <IconExternalLink className="w-4 h-4 text-neutral-500" />
-          </a>
-        </div>
+        {hasAddress ? (
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs text-neutral-400 font-mono truncate">
+              {shortenAddress(member.address!)}
+            </code>
+            <button
+              onClick={() => onCopy(member.address!)}
+              className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
+            >
+              {copied === member.address ? (
+                <IconCheck className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <IconCopy className="w-4 h-4 text-neutral-500" />
+              )}
+            </button>
+            <a
+              href={`https://sepolia.etherscan.io/address/${member.address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 rounded-lg hover:bg-neutral-800 transition-colors"
+            >
+              <IconExternalLink className="w-4 h-4 text-neutral-500" />
+            </a>
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-500 italic">
+            Address record not configured
+          </p>
+        )}
       </div>
     </HoverCard3D>
   );
@@ -136,44 +153,91 @@ interface AddMemberModalProps {
   onSuccess: () => void;
 }
 
+type AddMemberStep = "form" | "creating" | "settingAddr" | "success";
+
 function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }: AddMemberModalProps) {
   const [label, setLabel] = useState("");
   const [address, setAddress] = useState("");
+  const [step, setStep] = useState<AddMemberStep>("form");
   const { address: connectedAddress } = useAccount();
 
-  const { writeContract, data: txHash, isPending, error: writeError, reset } = useWriteContract();
+  // Step 1: Create subdomain via NameWrapper
+  const {
+    writeContract: createSubdomain,
+    data: createTxHash,
+    isPending: isCreatePending,
+    error: createError,
+    reset: resetCreate,
+  } = useWriteContract();
 
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
+  const { isLoading: isCreateConfirming, isSuccess: isCreateSuccess } = useWaitForTransactionReceipt({
+    hash: createTxHash,
   });
 
+  // Step 2: Set address record on resolver
+  const {
+    writeContract: setAddrRecord,
+    data: setAddrTxHash,
+    isPending: isSetAddrPending,
+    error: setAddrError,
+    reset: resetSetAddr,
+  } = useWriteContract();
+
+  const { isLoading: isSetAddrConfirming, isSuccess: isSetAddrSuccess } = useWaitForTransactionReceipt({
+    hash: setAddrTxHash,
+  });
+
+  // When subdomain creation succeeds, set the address record
   useEffect(() => {
-    if (isSuccess) {
+    if (isCreateSuccess && step === "creating") {
+      setStep("settingAddr");
+      // Compute the subdomain node hash
+      const subdomainName = `${label.toLowerCase().trim()}.${parentDomain}`;
+      const subdomainNode = namehash(subdomainName) as `0x${string}`;
+
+      // Set the address record on the resolver
+      setAddrRecord({
+        ...resolverConfig,
+        functionName: "setAddr",
+        args: [subdomainNode, address as `0x${string}`],
+      });
+    }
+  }, [isCreateSuccess, step, label, parentDomain, address, setAddrRecord]);
+
+  // When addr record is set, show success
+  useEffect(() => {
+    if (isSetAddrSuccess && step === "settingAddr") {
+      setStep("success");
       onSuccess();
       setTimeout(() => {
         onClose();
         setLabel("");
         setAddress("");
-        reset();
+        setStep("form");
+        resetCreate();
+        resetSetAddr();
       }, 2000);
     }
-  }, [isSuccess, onSuccess, onClose, reset]);
+  }, [isSetAddrSuccess, step, onSuccess, onClose, resetCreate, resetSetAddr]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!label.trim() || !address.trim()) return;
+    if (!label.trim() || !address.trim() || !connectedAddress) return;
+
+    setStep("creating");
 
     // Use max uint64 for expiry (effectively no expiry for demo)
     const maxExpiry = BigInt("18446744073709551615");
 
-    writeContract({
+    // Create subdomain with connected wallet as owner (so we can set addr record)
+    createSubdomain({
       ...nameWrapperConfig,
       functionName: "setSubnodeRecord",
       args: [
         parentNode,
         label.toLowerCase().trim(),
-        address as `0x${string}`,
+        connectedAddress, // Owner = connected wallet (so we can set addr)
         ENS_CONTRACTS.resolver,
         BigInt(0), // TTL
         0, // Fuses (no restrictions)
@@ -182,31 +246,65 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
     });
   };
 
+  const handleClose = () => {
+    if (step === "form" || step === "success") {
+      onClose();
+      setLabel("");
+      setAddress("");
+      setStep("form");
+      resetCreate();
+      resetSetAddr();
+    }
+  };
+
+  const error = createError || setAddrError;
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/80" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/80" onClick={handleClose} />
       <div className="relative w-full max-w-md mx-4 p-6 rounded-2xl bg-neutral-900 border border-neutral-800">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold text-white">Add Member</h3>
-          <button onClick={onClose} className="p-1 hover:bg-neutral-800 rounded-lg">
+          <button onClick={handleClose} className="p-1 hover:bg-neutral-800 rounded-lg">
             <IconX className="w-5 h-5 text-neutral-400" />
           </button>
         </div>
 
-        {isSuccess ? (
+        {step === "success" ? (
           <div className="text-center py-8">
             <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
               <IconCheck className="w-8 h-8 text-emerald-400" />
             </div>
             <h4 className="text-lg font-semibold text-white mb-2">Member Added!</h4>
             <p className="text-neutral-400 text-sm">
-              {label}.{parentDomain} has been created
+              {label}.{parentDomain} now resolves to {shortenAddress(address)}
             </p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Progress indicator for multi-step */}
+            {(step === "creating" || step === "settingAddr") && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-neutral-800/50 mb-4">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                  step === "creating" ? "bg-purple-600 text-white" : "bg-emerald-500 text-white"
+                }`}>
+                  {step === "creating" ? "1" : <IconCheck className="w-3 h-3" />}
+                </div>
+                <span className="text-sm text-neutral-400">Create subdomain</span>
+                <div className="flex-1 h-0.5 mx-2 bg-neutral-700">
+                  <div className={`h-full transition-all ${step === "settingAddr" ? "w-full bg-emerald-500" : "w-0"}`} />
+                </div>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                  step === "settingAddr" ? "bg-purple-600 text-white" : "bg-neutral-700 text-neutral-500"
+                }`}>
+                  2
+                </div>
+                <span className="text-sm text-neutral-400">Set address</span>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm text-neutral-400 mb-2">
                 Subdomain Label
@@ -217,7 +315,8 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
                   value={label}
                   onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, ""))}
                   placeholder="alice"
-                  className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white placeholder:text-neutral-500 focus:outline-none focus:border-purple-600"
+                  disabled={step !== "form"}
+                  className="flex-1 px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white placeholder:text-neutral-500 focus:outline-none focus:border-purple-600 disabled:opacity-50"
                 />
                 <span className="text-neutral-500">.{parentDomain}</span>
               </div>
@@ -232,9 +331,10 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="0x..."
-                className="w-full px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white font-mono text-sm placeholder:text-neutral-500 focus:outline-none focus:border-purple-600"
+                disabled={step !== "form"}
+                className="w-full px-4 py-3 rounded-lg bg-neutral-800 border border-neutral-700 text-white font-mono text-sm placeholder:text-neutral-500 focus:outline-none focus:border-purple-600 disabled:opacity-50"
               />
-              {connectedAddress && (
+              {connectedAddress && step === "form" && (
                 <button
                   type="button"
                   onClick={() => setAddress(connectedAddress)}
@@ -245,38 +345,48 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
               )}
             </div>
 
-            {writeError && (
+            {error && (
               <div className="p-3 rounded-lg bg-red-950/50 border border-red-800/50 text-red-400 text-sm flex items-start gap-2">
                 <IconAlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span className="break-all">{writeError.message}</span>
+                <span className="break-all">{error.message}</span>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isPending || isConfirming || !label.trim() || !address.trim()}
+              disabled={step !== "form" || !label.trim() || !address.trim()}
               className="w-full py-3 rounded-lg font-medium bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
             >
-              {isPending ? (
+              {step === "creating" && isCreatePending ? (
                 <>
                   <IconLoader2 className="w-5 h-5 animate-spin" />
-                  Confirm in Wallet
+                  Confirm in Wallet (1/2)
                 </>
-              ) : isConfirming ? (
+              ) : step === "creating" && isCreateConfirming ? (
                 <>
                   <IconLoader2 className="w-5 h-5 animate-spin" />
-                  Creating Member...
+                  Creating Subdomain...
+                </>
+              ) : step === "settingAddr" && isSetAddrPending ? (
+                <>
+                  <IconLoader2 className="w-5 h-5 animate-spin" />
+                  Confirm in Wallet (2/2)
+                </>
+              ) : step === "settingAddr" && isSetAddrConfirming ? (
+                <>
+                  <IconLoader2 className="w-5 h-5 animate-spin" />
+                  Setting Address...
                 </>
               ) : (
                 <>
                   <IconUserPlus className="w-5 h-5" />
-                  Create Subdomain
+                  Create Member
                 </>
               )}
             </button>
 
             <p className="text-xs text-neutral-500 text-center">
-              This will create an on-chain transaction using NameWrapper
+              This requires 2 transactions: create subdomain + set address record
             </p>
           </form>
         )}
@@ -304,15 +414,30 @@ export default function ClubDetailPage({
   const [importCount, setImportCount] = useState<number | null>(null);
 
   const parentNode = namehash(decodedDomain) as `0x${string}`;
+  const tokenId = namehashToTokenId(parentNode);
 
-  // Check if connected wallet owns the domain
-  const { data: domainOwner } = useReadContract({
+  // Check if connected wallet owns the domain via NameWrapper (for wrapped names)
+  const { data: nameWrapperOwner } = useReadContract({
+    ...nameWrapperConfig,
+    functionName: "ownerOf",
+    args: [tokenId],
+  });
+
+  // Also check ENS Registry owner (for unwrapped names)
+  const { data: registryOwner } = useReadContract({
     ...ensRegistryConfig,
     functionName: "owner",
     args: [parentNode],
   });
 
-  const isOwner = address && domainOwner && address.toLowerCase() === (domainOwner as string).toLowerCase();
+  // User is owner if they own via NameWrapper OR directly via Registry
+  const isOwner = address && (
+    (nameWrapperOwner && address.toLowerCase() === (nameWrapperOwner as string).toLowerCase()) ||
+    (registryOwner && address.toLowerCase() === (registryOwner as string).toLowerCase())
+  );
+
+  // For display, prefer NameWrapper owner, fallback to Registry owner
+  const domainOwner = nameWrapperOwner || registryOwner;
 
   const fetchMembers = async () => {
     setIsLoading(true);
@@ -338,17 +463,20 @@ export default function ClubDetailPage({
     setTimeout(() => setCopied(null), 2000);
   };
 
+  // Filter members with addresses for import and stats
+  const membersWithAddresses = members.filter((m) => m.address !== null);
+
   const handleImportAll = () => {
     let imported = 0;
 
-    members.forEach((member) => {
+    membersWithAddresses.forEach((member) => {
       // Check if wallet already exists
       const exists = session.wallets.some(
-        (w) => w.address.toLowerCase() === member.address.toLowerCase()
+        (w) => w.address.toLowerCase() === member.address!.toLowerCase()
       );
 
       if (!exists) {
-        addWallet(member.address, member.name);
+        addWallet(member.address!, member.name);
         imported++;
       }
     });
@@ -436,7 +564,7 @@ export default function ClubDetailPage({
             </button>
           )}
 
-          {members.length > 0 && (
+          {membersWithAddresses.length > 0 && (
             <button
               onClick={handleImportAll}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
@@ -464,21 +592,21 @@ export default function ClubDetailPage({
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
-            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Members</p>
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Subdomains</p>
             <p className="text-2xl font-bold text-white">{members.length}</p>
           </div>
           <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
-            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">Unique Addresses</p>
+            <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">With Addresses</p>
             <p className="text-2xl font-bold text-purple-400">
-              {new Set(members.map((m) => m.address.toLowerCase())).size}
+              {membersWithAddresses.length}
             </p>
           </div>
           <div className="p-4 rounded-xl bg-neutral-900/50 border border-neutral-800">
             <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">In Session</p>
             <p className="text-2xl font-bold text-emerald-400">
-              {members.filter((m) =>
+              {membersWithAddresses.filter((m) =>
                 session.wallets.some(
-                  (w) => w.address.toLowerCase() === m.address.toLowerCase()
+                  (w) => w.address.toLowerCase() === m.address!.toLowerCase()
                 )
               ).length}
             </p>
@@ -529,7 +657,7 @@ export default function ClubDetailPage({
               <MemberCard
                 key={member.name}
                 member={member}
-                isOwner={domainOwner && member.address.toLowerCase() === (domainOwner as string).toLowerCase()}
+                isOwner={domainOwner && member.address !== null && member.address.toLowerCase() === (domainOwner as string).toLowerCase()}
                 onCopy={copyToClipboard}
                 copied={copied}
               />

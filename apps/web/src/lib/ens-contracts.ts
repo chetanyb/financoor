@@ -5,6 +5,7 @@ export const ENS_CONTRACTS = {
   registry: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as const,
   resolver: "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5" as const,
   nameWrapper: "0x0635513f179D50A207757E05759CbD106d7dFcE8" as const,
+  ethRegistrarController: "0xFED6a969AaA60E4961FCD3EBF1A2e8913ac65B72" as const,
 };
 
 // ENS Registry ABI (for ownership checks)
@@ -150,6 +151,89 @@ export function namehashToTokenId(node: Hex): bigint {
   return BigInt(node);
 }
 
+// ETH Registrar Controller ABI (for registering new .eth domains)
+export const ethRegistrarControllerAbi = [
+  {
+    name: "makeCommitment",
+    type: "function",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "owner", type: "address" },
+      { name: "duration", type: "uint256" },
+      { name: "secret", type: "bytes32" },
+      { name: "resolver", type: "address" },
+      { name: "data", type: "bytes[]" },
+      { name: "reverseRecord", type: "bool" },
+      { name: "ownerControlledFuses", type: "uint16" },
+    ],
+    outputs: [{ name: "", type: "bytes32" }],
+    stateMutability: "pure",
+  },
+  {
+    name: "commit",
+    type: "function",
+    inputs: [{ name: "commitment", type: "bytes32" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    name: "register",
+    type: "function",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "owner", type: "address" },
+      { name: "duration", type: "uint256" },
+      { name: "secret", type: "bytes32" },
+      { name: "resolver", type: "address" },
+      { name: "data", type: "bytes[]" },
+      { name: "reverseRecord", type: "bool" },
+      { name: "ownerControlledFuses", type: "uint16" },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    name: "rentPrice",
+    type: "function",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "duration", type: "uint256" },
+    ],
+    outputs: [
+      {
+        name: "price",
+        type: "tuple",
+        components: [
+          { name: "base", type: "uint256" },
+          { name: "premium", type: "uint256" },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    name: "available",
+    type: "function",
+    inputs: [{ name: "name", type: "string" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    name: "minCommitmentAge",
+    type: "function",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    name: "maxCommitmentAge",
+    type: "function",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+] as const;
+
 // Contract config objects for wagmi
 export const ensRegistryConfig = {
   address: ENS_CONTRACTS.registry,
@@ -164,4 +248,9 @@ export const nameWrapperConfig = {
 export const resolverConfig = {
   address: ENS_CONTRACTS.resolver,
   abi: resolverAbi,
+} as const;
+
+export const ethRegistrarControllerConfig = {
+  address: ENS_CONTRACTS.ethRegistrarController,
+  abi: ethRegistrarControllerAbi,
 } as const;

@@ -88,7 +88,7 @@ export default function Home() {
 
         {/* Description */}
         <p className="mt-8 max-w-2xl text-center text-neutral-500 text-sm md:text-base">
-          Analyze your on-chain activity, calculate your tax liability under Indian law,
+          Manage your crypto club with ENS, analyze on-chain activity, calculate tax liability,
           and generate zero-knowledge proofs that verify your calculations without
           revealing your financial data.
         </p>

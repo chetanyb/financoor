@@ -95,12 +95,14 @@ export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
 
     try {
       const response = await resolveEnsSubdomains(rootName);
-      if (response.subdomains.length === 0) {
+      // Filter to only include subdomains with resolved addresses
+      const withAddresses = response.subdomains.filter((s) => s.address !== null);
+      if (withAddresses.length === 0) {
         setEnsError("No subdomains with resolved addresses found");
       } else {
-        setEnsResults(response.subdomains);
+        setEnsResults(withAddresses);
         // Select all by default
-        setSelectedEns(new Set(response.subdomains.map((s) => s.address)));
+        setSelectedEns(new Set(withAddresses.map((s) => s.address!)));
       }
     } catch (err) {
       setEnsError(err instanceof Error ? err.message : "Failed to resolve ENS");
@@ -129,9 +131,11 @@ export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
     if (!ensResults) return;
 
     for (const subdomain of ensResults) {
+      // Only include subdomains with addresses (already filtered)
+      if (!subdomain.address) continue;
       if (selectedEns.has(subdomain.address)) {
         // Skip if already exists
-        if (session.wallets.some((w) => w.address.toLowerCase() === subdomain.address.toLowerCase())) {
+        if (session.wallets.some((w) => w.address.toLowerCase() === subdomain.address!.toLowerCase())) {
           continue;
         }
         addWallet(subdomain.address.toLowerCase(), subdomain.name);
@@ -260,21 +264,21 @@ export function WalletsStep({ onNext, onBack }: WalletsStepProps) {
                 Found {ensResults.length} subdomain{ensResults.length !== 1 ? "s" : ""} with addresses:
               </p>
               <div className="max-h-48 overflow-y-auto space-y-1">
-                {ensResults.map((subdomain) => (
+                {ensResults.filter((s) => s.address !== null).map((subdomain) => (
                   <label
-                    key={subdomain.address}
+                    key={subdomain.address!}
                     className="flex items-center gap-3 p-2 bg-neutral-800/30 border border-neutral-700/50 rounded-lg cursor-pointer hover:bg-neutral-800/50"
                   >
                     <input
                       type="checkbox"
-                      checked={selectedEns.has(subdomain.address)}
-                      onChange={() => toggleEnsSelection(subdomain.address)}
+                      checked={selectedEns.has(subdomain.address!)}
+                      onChange={() => toggleEnsSelection(subdomain.address!)}
                       className="w-4 h-4 rounded border-neutral-600 bg-neutral-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-0"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-neutral-200">{subdomain.name}</p>
                       <p className="text-xs text-neutral-500 font-mono">
-                        {shortenAddress(subdomain.address)}
+                        {shortenAddress(subdomain.address!)}
                       </p>
                     </div>
                   </label>

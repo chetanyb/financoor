@@ -145,7 +145,7 @@ export async function generateProof(request: ProofRequest): Promise<ProofRespons
 export interface EnsSubdomain {
   name: string;
   label: string;
-  address: string;
+  address: string | null;
 }
 
 export interface EnsResolveResponse {

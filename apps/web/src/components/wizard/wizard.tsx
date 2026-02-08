@@ -46,13 +46,13 @@ export function Wizard({ onComplete }: WizardProps) {
   return (
     <div className="space-y-8">
       {/* Progress indicator */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center">
         {steps.map((step, index) => (
-          <div key={step.id} className="flex items-center">
-            <div className="flex items-center">
+          <div key={step.id} className={cn("flex items-center", index < steps.length - 1 ? "flex-1" : "")}>
+            <div className="flex items-center flex-shrink-0">
               <div
                 className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center font-mono text-sm transition-colors",
+                  "w-8 h-8 rounded-full flex items-center justify-center font-mono text-sm transition-colors flex-shrink-0",
                   currentStep > step.id
                     ? "bg-green-500/20 text-green-400 border border-green-500/50"
                     : currentStep === step.id
@@ -83,7 +83,7 @@ export function Wizard({ onComplete }: WizardProps) {
             {index < steps.length - 1 && (
               <div
                 className={cn(
-                  "w-12 sm:w-24 h-0.5 mx-2 sm:mx-4",
+                  "flex-1 h-0.5 mx-2 sm:mx-4",
                   currentStep > step.id ? "bg-green-500/50" : "bg-neutral-700"
                 )}
               />
