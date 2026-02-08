@@ -1,0 +1,28 @@
+[Unit]
+Description=Financoor API Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/financoor
+Environment=RUST_LOG=info
+Environment=PORT=3001
+EnvironmentFile=/home/ubuntu/financoor/.env
+ExecStart=/home/ubuntu/financoor/target/release/api
+Restart=always
+RestartSec=5
+
+# Performance tuning
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/financoor
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,14 @@
 .env.*
 !.env.example
 
+# Terraform
+*.tfvars
+!*.tfvars.example
+*.tfstate
+*.tfstate.*
+.terraform/
+*.pem
+
 # Node / Next.js / React
 node_modules/
 .next/

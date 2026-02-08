@@ -1,0 +1,30 @@
+# =============================================================================
+# Financoor Terraform Variables
+# Copy this to terraform.tfvars and fill in your values
+# =============================================================================
+
+# AWS region
+aws_region = "us-east-1"
+
+# Instance type (c6i.2xlarge recommended)
+# Options: c6i.xlarge (~$45/wk), c6i.2xlarge (~$90/wk), c6i.4xlarge (~$180/wk)
+instance_type = "c6i.2xlarge"
+
+# Your IP address for SSH access (IMPORTANT: restrict this!)
+# Find your IP: curl -s https://ipv4.icanhazip.com
+# Format: "YOUR_IP/32" (e.g., "203.0.113.50/32")
+allowed_ssh_cidr = "YOUR_IP_HERE/32"
+
+# Alchemy API key (from https://dashboard.alchemy.com)
+alchemy_api_key = "your-alchemy-api-key"
+
+# GitHub repository URL
+github_repo = "https://github.com/your-username/financoor.git"
+
+# Optional: API secret key for authentication
+# If set, requests must include X-API-Key header
+# Leave empty to disable (api_secret_key = "")
+api_secret_key = ""
+
+# Disk size in GB
+root_volume_size = 50
