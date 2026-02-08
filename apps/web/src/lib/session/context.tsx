@@ -14,7 +14,6 @@ import {
   type Wallet,
   type WalletGroup,
   type LedgerRow,
-  type CategoryOverride,
   type PriceEntry,
   type TaxSummary,
   type ProofArtifacts,
@@ -100,17 +99,10 @@ function saveSession(session: SessionState): void {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<SessionState>(createEmptySession);
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  // Load session from localStorage on mount
-  useEffect(() => {
-    const loaded = loadSession();
-    if (loaded) {
-      setSession(loaded);
-    }
-    setIsLoaded(true);
-  }, []);
+  const [session, setSession] = useState<SessionState>(
+    () => loadSession() ?? createEmptySession()
+  );
+  const isLoaded = true;
 
   // Save session to localStorage on change (after initial load)
   useEffect(() => {

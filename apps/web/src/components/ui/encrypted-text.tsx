@@ -16,36 +16,34 @@ export function EncryptedText({ text, className, interval = 50 }: EncryptedTextP
   const [isHovering, setIsHovering] = useState(false);
 
   useEffect(() => {
-    let iteration = 0;
-    let intervalId: NodeJS.Timeout | null = null;
-
-    if (isHovering) {
-      intervalId = setInterval(() => {
-        setDisplayText((prev) =>
-          text
-            .split("")
-            .map((char, index) => {
-              if (index < iteration) {
-                return text[index];
-              }
-              if (char === " ") return " ";
-              return characters[Math.floor(Math.random() * characters.length)];
-            })
-            .join("")
-        );
-
-        if (iteration >= text.length) {
-          if (intervalId) clearInterval(intervalId);
-        }
-
-        iteration += 1 / 3;
-      }, interval);
-    } else {
-      setDisplayText(text);
+    if (!isHovering) {
+      return;
     }
 
+    let iteration = 0;
+    const intervalId = setInterval(() => {
+      setDisplayText(
+        text
+          .split("")
+          .map((char, index) => {
+            if (index < iteration) {
+              return text[index];
+            }
+            if (char === " ") return " ";
+            return characters[Math.floor(Math.random() * characters.length)];
+          })
+          .join("")
+      );
+
+      if (iteration >= text.length) {
+        clearInterval(intervalId);
+      }
+
+      iteration += 1 / 3;
+    }, interval);
+
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      clearInterval(intervalId);
     };
   }, [isHovering, text, interval]);
 
@@ -53,7 +51,10 @@ export function EncryptedText({ text, className, interval = 50 }: EncryptedTextP
     <motion.span
       className={cn("font-mono cursor-default", className)}
       onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
+      onMouseLeave={() => {
+        setIsHovering(false);
+        setDisplayText(text);
+      }}
     >
       {displayText}
     </motion.span>

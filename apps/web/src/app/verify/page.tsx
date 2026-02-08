@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { FloatingDock } from "@/components/ui/floating-dock";
@@ -83,8 +83,9 @@ function base64ToHex(base64: string): `0x${string}` {
 
 export default function VerifyPage() {
   const { session, isLoaded } = useSession();
-  const { address, isConnected } = useAccount();
-  const [verification, setVerification] = useState<VerificationState>({ status: "idle" });
+  const { isConnected } = useAccount();
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [dismissedStatus, setDismissedStatus] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [manualProof, setManualProof] = useState("");
   const [manualPublicValues, setManualPublicValues] = useState("");
@@ -100,21 +101,15 @@ export default function VerifyPage() {
     hash: txHash,
   });
 
-  // Update verification state based on transaction status
-  useEffect(() => {
-    if (isPending) {
-      setVerification({ status: "verifying" });
-    } else if (txHash && isConfirming) {
-      setVerification({ status: "confirming", txHash });
-    } else if (txHash && isConfirmed) {
-      setVerification({ status: "success", txHash });
-    } else if (writeError) {
-      setVerification({
-        status: "error",
-        error: writeError.message || "Transaction failed",
-      });
-    }
-  }, [isPending, txHash, isConfirming, isConfirmed, writeError]);
+  const verification: VerificationState = useMemo(() => {
+    if (dismissedStatus) return { status: "idle" };
+    if (manualError) return { status: "error", error: manualError };
+    if (writeError) return { status: "error", error: writeError.message || "Transaction failed" };
+    if (isPending) return { status: "verifying" };
+    if (txHash && isConfirming) return { status: "confirming", txHash };
+    if (txHash && isConfirmed) return { status: "success", txHash };
+    return { status: "idle" };
+  }, [dismissedStatus, manualError, writeError, isPending, txHash, isConfirming, isConfirmed]);
 
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -190,11 +185,10 @@ export default function VerifyPage() {
   };
 
   const handleVerify = async () => {
+    setDismissedStatus(false);
+    setManualError(null);
     if (!isConnected) {
-      setVerification({
-        status: "error",
-        error: "Please connect your wallet first",
-      });
+      setManualError("Please connect your wallet first");
       return;
     }
 
@@ -204,10 +198,7 @@ export default function VerifyPage() {
 
     if (useManualInput || !proofArtifacts) {
       if (!manualProof || !manualPublicValues) {
-        setVerification({
-          status: "error",
-          error: "Please provide both proof and public values",
-        });
+        setManualError("Please provide both proof and public values");
         return;
       }
       proofBase64 = manualProof;
@@ -229,15 +220,13 @@ export default function VerifyPage() {
         args: [proofHex, publicValuesHex],
       });
     } catch (err) {
-      setVerification({
-        status: "error",
-        error: err instanceof Error ? err.message : "Failed to prepare transaction",
-      });
+      setManualError(err instanceof Error ? err.message : "Failed to prepare transaction");
     }
   };
 
   const resetVerification = () => {
-    setVerification({ status: "idle" });
+    setDismissedStatus(true);
+    setManualError(null);
   };
 
   const userTypeLabel = ["Individual", "HUF", "Corporate"];

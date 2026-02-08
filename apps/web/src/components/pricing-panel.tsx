@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSession } from "@/lib/session";
 import { IconCurrencyDollar, IconCurrencyRupee, IconInfoCircle } from "@tabler/icons-react";
 
@@ -16,45 +16,29 @@ const DEFAULT_USD_INR = "83.00";
 export function PricingPanel() {
   const { session, setPrices, setUsdInrRate } = useSession();
   const [localUsdInr, setLocalUsdInr] = useState(session.usdInrRate || DEFAULT_USD_INR);
-  const [localPrices, setLocalPrices] = useState<Record<string, string>>({});
-  const initializedRef = useRef(false);
-  const prevLedgerLengthRef = useRef(session.ledger.length);
 
   // Get unique assets from ledger
-  const uniqueAssets = [...new Set(session.ledger.map((row) => row.asset))];
-
-  // Initialize local prices from session or defaults (only once or when new assets appear)
-  useEffect(() => {
-    const ledgerChanged = session.ledger.length !== prevLedgerLengthRef.current;
-    prevLedgerLengthRef.current = session.ledger.length;
-
-    // Only initialize on first mount or when ledger gets new entries
-    if (!initializedRef.current || ledgerChanged) {
-      const priceMap: Record<string, string> = {};
-
-      // Start with session prices
-      for (const entry of session.prices) {
-        priceMap[entry.asset] = entry.usdPrice;
-      }
-
-      // Fill in defaults for any missing assets
-      for (const asset of uniqueAssets) {
-        if (!priceMap[asset]) {
-          priceMap[asset] = DEFAULT_PRICES[asset] || "1.00";
-        }
-      }
-
-      setLocalPrices(priceMap);
-      initializedRef.current = true;
+  const uniqueAssets = useMemo(
+    () => [...new Set(session.ledger.map((row) => row.asset))],
+    [session.ledger]
+  );
+  const priceMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const entry of session.prices) {
+      map[entry.asset] = entry.usdPrice;
     }
-  }, [session.prices, session.ledger.length, uniqueAssets]);
+    for (const asset of uniqueAssets) {
+      if (!map[asset]) {
+        map[asset] = DEFAULT_PRICES[asset] || "1.00";
+      }
+    }
+    return map;
+  }, [session.prices, uniqueAssets]);
 
   const handlePriceChange = (asset: string, value: string) => {
     // Allow only valid decimal numbers
     if (value === "" || /^\d*\.?\d*$/.test(value)) {
-      const updated = { ...localPrices, [asset]: value };
-      setLocalPrices(updated);
-      // Sync to session after local state update
+      const updated = { ...priceMap, [asset]: value };
       const priceEntries = Object.entries(updated).map(([a, usdPrice]) => ({
         asset: a,
         usdPrice,
@@ -129,7 +113,7 @@ export function PricingPanel() {
               <span className="text-neutral-500 text-sm">$</span>
               <input
                 type="text"
-                value={localPrices[asset] || ""}
+                value={priceMap[asset] || ""}
                 onChange={(e) => handlePriceChange(asset, e.target.value)}
                 placeholder="0.00"
                 className="w-28 px-3 py-1.5 bg-neutral-900 border border-neutral-600 rounded text-right text-neutral-200 text-sm font-mono focus:outline-none focus:border-neutral-500"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { FloatingDock } from "@/components/ui/floating-dock";
 import { SessionManager } from "@/components/session-manager";
 import { Wizard } from "@/components/wizard";
@@ -270,15 +270,9 @@ export default function AppPage() {
   const { session, isLoaded } = useSession();
   const [wizardComplete, setWizardComplete] = useState(false);
 
-  // On initial load, check if session already has completed setup
-  useEffect(() => {
-    if (isLoaded && session.userType && session.wallets.length > 0) {
-      setWizardComplete(true);
-    }
-  }, [isLoaded]); // Only run once when loaded, ignore session changes
-
   // Show wizard only if not explicitly completed
-  const showWizard = !wizardComplete;
+  const hasSetup = Boolean(session.userType) && session.wallets.length > 0;
+  const showWizard = !wizardComplete && !hasSetup;
 
   return (
     <div className="min-h-screen w-full bg-black/[0.96] antialiased relative">

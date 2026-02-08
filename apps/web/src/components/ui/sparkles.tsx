@@ -1,17 +1,8 @@
 "use client";
 
-import React, { useId, useState, useEffect } from "react";
+import React, { useId, useMemo } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-
-interface Particle {
-  id: number;
-  x: number;
-  y: number;
-  size: number;
-  duration: number;
-  delay: number;
-}
 
 interface SparklesCoreProps {
   id?: string;
@@ -36,21 +27,28 @@ export const SparklesCore = ({
 }: SparklesCoreProps) => {
   const generatedId = useId();
   const sparkleId = id || generatedId;
-  const [particles, setParticles] = useState<Particle[]>([]);
 
-  // Generate particles only on client to avoid hydration mismatch
-  useEffect(() => {
-    setParticles(
+  const particles = useMemo(
+    () => {
+      const seeded = (index: number, salt: number) => {
+        const base = sparkleId.length * 31 + index * 17 + salt * 13;
+        const value = Math.sin(base) * 10000;
+        return value - Math.floor(value);
+      };
+
+      return (
       Array.from({ length: particleDensity }, (_, i) => ({
         id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: Math.random() * (maxSize - minSize) + minSize,
-        duration: (Math.random() * 2 + 1) / speed,
-        delay: Math.random() * 2,
+        x: seeded(i, 1) * 100,
+        y: seeded(i, 2) * 100,
+        size: seeded(i, 3) * (maxSize - minSize) + minSize,
+        duration: (seeded(i, 4) * 2 + 1) / speed,
+        delay: seeded(i, 5) * 2,
       }))
-    );
-  }, [particleDensity, minSize, maxSize, speed]);
+      );
+    },
+    [particleDensity, minSize, maxSize, speed, sparkleId]
+  );
 
   return (
     <div

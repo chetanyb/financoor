@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, use, useCallback } from "react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { FloatingDock } from "@/components/ui/floating-dock";
@@ -14,7 +13,6 @@ import {
   nameWrapperConfig,
   resolverConfig,
   namehash,
-  labelhash,
   namehashToTokenId,
 } from "@/lib/ens-contracts";
 import {
@@ -190,7 +188,7 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
   // When subdomain creation succeeds, set the address record
   useEffect(() => {
     if (isCreateSuccess && step === "creating") {
-      setStep("settingAddr");
+      setTimeout(() => setStep("settingAddr"), 0);
       // Compute the subdomain node hash
       const subdomainName = `${label.toLowerCase().trim()}.${parentDomain}`;
       const subdomainNode = namehash(subdomainName) as `0x${string}`;
@@ -207,7 +205,7 @@ function AddMemberModal({ isOpen, onClose, parentDomain, parentNode, onSuccess }
   // When addr record is set, show success
   useEffect(() => {
     if (isSetAddrSuccess && step === "settingAddr") {
-      setStep("success");
+      setTimeout(() => setStep("success"), 0);
       onSuccess();
       setTimeout(() => {
         onClose();
@@ -401,9 +399,8 @@ export default function ClubDetailPage({
   params: Promise<{ domain: string }>;
 }) {
   const { domain } = use(params);
-  const router = useRouter();
   const decodedDomain = decodeURIComponent(domain);
-  const { address, isConnected } = useAccount();
+  const { address } = useAccount();
   const { addWallet, session } = useSession();
 
   const [members, setMembers] = useState<EnsSubdomain[]>([]);
@@ -439,7 +436,7 @@ export default function ClubDetailPage({
   // For display, prefer NameWrapper owner, fallback to Registry owner
   const domainOwner = nameWrapperOwner || registryOwner;
 
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -451,11 +448,11 @@ export default function ClubDetailPage({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [decodedDomain]);
 
   useEffect(() => {
     fetchMembers();
-  }, [decodedDomain]);
+  }, [fetchMembers]);
 
   const copyToClipboard = async (text: string) => {
     await navigator.clipboard.writeText(text);
