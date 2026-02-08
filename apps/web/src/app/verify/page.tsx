@@ -19,6 +19,8 @@ import {
   IconCheck,
   IconUpload,
   IconWallet,
+  IconDownload,
+  IconFileUpload,
 } from "@tabler/icons-react";
 import Link from "next/link";
 
@@ -103,10 +105,73 @@ export default function VerifyPage() {
     }
   }, [isPending, txHash, isConfirming, isConfirmed, writeError]);
 
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const copyToClipboard = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(null), 2000);
+  };
+
+  // Download proof as JSON file
+  const handleDownloadProof = () => {
+    if (!proofArtifacts) return;
+
+    const proofData = {
+      proof: proofArtifacts.proof,
+      publicValues: proofArtifacts.publicValues,
+      metadata: {
+        ledgerCommitment: proofArtifacts.ledgerCommitment,
+        totalTaxPaisa: proofArtifacts.totalTaxPaisa,
+        userTypeCode: proofArtifacts.userTypeCode,
+        used44ada: proofArtifacts.used44ada,
+        vkHash: proofArtifacts.vkHash,
+        generatedAt: proofArtifacts.generatedAt,
+        note: proofArtifacts.note,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(proofData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `financoor-proof-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Handle file upload
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+
+        // Validate the structure
+        if (!data.proof || !data.publicValues) {
+          setUploadError("Invalid proof file: missing proof or publicValues");
+          return;
+        }
+
+        setManualProof(data.proof);
+        setManualPublicValues(data.publicValues);
+        setUploadError(null);
+      } catch {
+        setUploadError("Failed to parse proof file. Please ensure it's valid JSON.");
+      }
+    };
+    reader.onerror = () => {
+      setUploadError("Failed to read file");
+    };
+    reader.readAsText(file);
   };
 
   const handleVerify = async () => {
@@ -307,12 +372,22 @@ export default function VerifyPage() {
                 </p>
               </div>
 
-              <button
-                onClick={() => setUseManualInput(true)}
-                className="text-sm text-neutral-500 hover:text-neutral-300 transition-colors"
-              >
-                Or upload different proof
-              </button>
+              {/* Actions */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleDownloadProof}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+                >
+                  <IconDownload className="w-4 h-4" />
+                  Download Proof
+                </button>
+                <button
+                  onClick={() => setUseManualInput(true)}
+                  className="text-sm text-neutral-500 hover:text-neutral-300 transition-colors"
+                >
+                  Or upload different proof
+                </button>
+              </div>
             </div>
 
             {/* Verification action */}
@@ -443,12 +518,49 @@ export default function VerifyPage() {
                 <div>
                   <h2 className="text-xl font-semibold text-neutral-200">Upload Proof</h2>
                   <p className="text-sm text-neutral-500">
-                    Paste your proof artifacts to verify
+                    Upload a proof file or paste proof data manually
                   </p>
                 </div>
               </div>
 
               <div className="space-y-4">
+                {/* File Upload */}
+                <div>
+                  <label className="block text-sm text-neutral-400 mb-2">
+                    Upload Proof File
+                  </label>
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-neutral-700 rounded-lg cursor-pointer bg-neutral-800/50 hover:bg-neutral-800 hover:border-neutral-600 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <IconFileUpload className="w-8 h-8 mb-2 text-neutral-500" />
+                      <p className="mb-1 text-sm text-neutral-400">
+                        <span className="font-medium text-blue-400">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-neutral-500">JSON proof file (.json)</p>
+                    </div>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".json,application/json"
+                      onChange={handleFileUpload}
+                    />
+                  </label>
+                  {uploadError && (
+                    <p className="mt-2 text-sm text-red-400">{uploadError}</p>
+                  )}
+                  {manualProof && manualPublicValues && (
+                    <p className="mt-2 text-sm text-emerald-400 flex items-center gap-1">
+                      <IconCheck className="w-4 h-4" />
+                      Proof file loaded successfully
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-neutral-700" />
+                  <span className="text-xs text-neutral-500 uppercase">or paste manually</span>
+                  <div className="flex-1 h-px bg-neutral-700" />
+                </div>
+
                 <div>
                   <label className="block text-sm text-neutral-400 mb-2">
                     Proof (Base64)
