@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { FloatingDock } from "@/components/ui/floating-dock";
 import { useSession } from "@/lib/session";
+import { taxVerifierConfig } from "@/lib/contracts";
+import { CONTRACTS } from "@/lib/wagmi";
 import {
   IconHome,
   IconApps,
@@ -14,6 +18,7 @@ import {
   IconCopy,
   IconCheck,
   IconUpload,
+  IconWallet,
 } from "@tabler/icons-react";
 import Link from "next/link";
 
@@ -35,11 +40,8 @@ const dockItems = [
   },
 ];
 
-// Mock TaxVerifier address on Sepolia (would be set after deployment)
-const TAX_VERIFIER_ADDRESS = "0x0000000000000000000000000000000000000000";
-
 interface VerificationState {
-  status: "idle" | "verifying" | "success" | "error";
+  status: "idle" | "verifying" | "confirming" | "success" | "error";
   txHash?: string;
   error?: string;
 }
@@ -53,8 +55,22 @@ function formatTaxFromPaisa(paisa: number): string {
   }).format(inr);
 }
 
+// Convert base64 to hex string for contract call
+function base64ToHex(base64: string): `0x${string}` {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `0x${hex}` as `0x${string}`;
+}
+
 export default function VerifyPage() {
   const { session, isLoaded } = useSession();
+  const { address, isConnected } = useAccount();
   const [verification, setVerification] = useState<VerificationState>({ status: "idle" });
   const [copied, setCopied] = useState<string | null>(null);
   const [manualProof, setManualProof] = useState("");
@@ -63,6 +79,30 @@ export default function VerifyPage() {
 
   const proofArtifacts = session.proofArtifacts;
 
+  // Contract write for verification
+  const { writeContract, data: txHash, error: writeError, isPending } = useWriteContract();
+
+  // Wait for transaction confirmation
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash: txHash,
+  });
+
+  // Update verification state based on transaction status
+  useEffect(() => {
+    if (isPending) {
+      setVerification({ status: "verifying" });
+    } else if (txHash && isConfirming) {
+      setVerification({ status: "confirming", txHash });
+    } else if (txHash && isConfirmed) {
+      setVerification({ status: "success", txHash });
+    } else if (writeError) {
+      setVerification({
+        status: "error",
+        error: writeError.message || "Transaction failed",
+      });
+    }
+  }, [isPending, txHash, isConfirming, isConfirmed, writeError]);
+
   const copyToClipboard = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(label);
@@ -70,28 +110,54 @@ export default function VerifyPage() {
   };
 
   const handleVerify = async () => {
-    setVerification({ status: "verifying" });
+    if (!isConnected) {
+      setVerification({
+        status: "error",
+        error: "Please connect your wallet first",
+      });
+      return;
+    }
+
+    // Get proof data - either from session or manual input
+    let proofBase64: string;
+    let publicValuesBase64: string;
+
+    if (useManualInput || !proofArtifacts) {
+      if (!manualProof || !manualPublicValues) {
+        setVerification({
+          status: "error",
+          error: "Please provide both proof and public values",
+        });
+        return;
+      }
+      proofBase64 = manualProof;
+      publicValuesBase64 = manualPublicValues;
+    } else {
+      proofBase64 = proofArtifacts.proof;
+      publicValuesBase64 = proofArtifacts.publicValues;
+    }
 
     try {
-      // In a real implementation, this would:
-      // 1. Connect to wallet (via wagmi/viem)
-      // 2. Call TaxVerifier.verifyTaxProof(proofBytes, publicValues)
-      // 3. Wait for transaction confirmation
+      // Convert base64 to hex for contract call
+      const proofHex = base64ToHex(proofBase64);
+      const publicValuesHex = base64ToHex(publicValuesBase64);
 
-      // For demo, simulate the verification process
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Mock successful verification
-      setVerification({
-        status: "success",
-        txHash: "0x" + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join(""),
+      // Call the TaxVerifier contract
+      writeContract({
+        ...taxVerifierConfig,
+        functionName: "verifyTaxProof",
+        args: [proofHex, publicValuesHex],
       });
     } catch (err) {
       setVerification({
         status: "error",
-        error: err instanceof Error ? err.message : "Verification failed",
+        error: err instanceof Error ? err.message : "Failed to prepare transaction",
       });
     }
+  };
+
+  const resetVerification = () => {
+    setVerification({ status: "idle" });
   };
 
   const userTypeLabel = ["Individual", "HUF", "Corporate"];
@@ -110,13 +176,45 @@ export default function VerifyPage() {
             <h1 className="text-3xl font-bold text-white">Verify Proof</h1>
             <p className="text-neutral-500 mt-1">Submit ZK proof for on-chain verification</p>
           </div>
-          <Link
-            href="/app"
-            className="text-sm text-neutral-400 hover:text-white transition-colors"
-          >
-            Back to App
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/app"
+              className="text-sm text-neutral-400 hover:text-white transition-colors"
+            >
+              Back to App
+            </Link>
+            <ConnectButton.Custom>
+              {({ account, chain, openConnectModal, openAccountModal, mounted }) => {
+                const connected = mounted && account && chain;
+                return (
+                  <button
+                    onClick={connected ? openAccountModal : openConnectModal}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      connected
+                        ? "bg-emerald-600/20 text-emerald-400 border border-emerald-600/30"
+                        : "bg-violet-600 hover:bg-violet-500 text-white"
+                    }`}
+                  >
+                    <IconWallet className="w-4 h-4" />
+                    {connected
+                      ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}`
+                      : "Connect Wallet"}
+                  </button>
+                );
+              }}
+            </ConnectButton.Custom>
+          </div>
         </div>
+
+        {/* Wallet connection warning */}
+        {!isConnected && (
+          <div className="mb-6 rounded-xl border border-amber-800/50 bg-amber-950/30 p-4 flex items-center gap-3">
+            <IconWallet className="w-5 h-5 text-amber-400 flex-shrink-0" />
+            <p className="text-sm text-amber-300">
+              Connect your wallet to submit verification transactions on Sepolia
+            </p>
+          </div>
+        )}
 
         {!isLoaded ? (
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center">
@@ -222,28 +320,61 @@ export default function VerifyPage() {
               <h3 className="text-lg font-semibold text-neutral-200 mb-4">Submit to Blockchain</h3>
 
               <div className="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700 mb-4">
-                <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">TaxVerifier Contract</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-neutral-500 uppercase tracking-wide">TaxVerifier Contract (Sepolia)</p>
+                  <a
+                    href={`https://sepolia.etherscan.io/address/${CONTRACTS.taxVerifier}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300"
+                  >
+                    <IconExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
                 <code className="text-xs text-neutral-300 font-mono">
-                  {TAX_VERIFIER_ADDRESS === "0x0000000000000000000000000000000000000000"
-                    ? "Not deployed yet (demo mode)"
-                    : TAX_VERIFIER_ADDRESS}
+                  {CONTRACTS.taxVerifier}
                 </code>
               </div>
 
               {verification.status === "idle" && (
                 <button
                   onClick={handleVerify}
-                  className="w-full py-3 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-2"
+                  disabled={!isConnected}
+                  className="w-full py-3 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
                 >
                   <IconShieldCheck className="w-5 h-5" />
-                  Verify Proof On-Chain (Demo)
+                  {isConnected ? "Verify Proof On-Chain" : "Connect Wallet to Verify"}
                 </button>
               )}
 
               {verification.status === "verifying" && (
                 <div className="flex items-center justify-center gap-3 py-4">
-                  <IconLoader2 className="w-5 h-5 animate-spin text-emerald-400" />
-                  <span className="text-neutral-300">Submitting verification transaction...</span>
+                  <IconLoader2 className="w-5 h-5 animate-spin text-violet-400" />
+                  <span className="text-neutral-300">Waiting for wallet approval...</span>
+                </div>
+              )}
+
+              {verification.status === "confirming" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <IconLoader2 className="w-5 h-5 animate-spin text-emerald-400" />
+                    <span className="text-neutral-300">Confirming transaction...</span>
+                  </div>
+                  {verification.txHash && (
+                    <div className="flex items-center gap-2 justify-center">
+                      <code className="text-xs text-neutral-400 font-mono truncate max-w-xs">
+                        {verification.txHash}
+                      </code>
+                      <a
+                        href={`https://sepolia.etherscan.io/tx/${verification.txHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 hover:bg-neutral-700 rounded transition-colors"
+                      >
+                        <IconExternalLink className="w-3 h-3 text-neutral-400" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -273,7 +404,7 @@ export default function VerifyPage() {
                   </div>
 
                   <button
-                    onClick={() => setVerification({ status: "idle" })}
+                    onClick={resetVerification}
                     className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors"
                   >
                     Verify Again
@@ -288,11 +419,11 @@ export default function VerifyPage() {
                       <IconAlertCircle className="w-5 h-5 text-red-400" />
                       <span className="text-red-300 font-medium">Verification Failed</span>
                     </div>
-                    <p className="text-sm text-red-400/80">{verification.error}</p>
+                    <p className="text-sm text-red-400/80 break-all">{verification.error}</p>
                   </div>
 
                   <button
-                    onClick={() => setVerification({ status: "idle" })}
+                    onClick={resetVerification}
                     className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors"
                   >
                     Try Again
@@ -342,16 +473,103 @@ export default function VerifyPage() {
                   />
                 </div>
 
-                <button
-                  onClick={handleVerify}
-                  disabled={!manualProof || !manualPublicValues}
-                  className="w-full py-3 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
-                >
-                  <IconShieldCheck className="w-5 h-5" />
-                  Verify Proof
-                </button>
+                {/* Verification status for manual input */}
+                {verification.status === "idle" && (
+                  <button
+                    onClick={handleVerify}
+                    disabled={!manualProof || !manualPublicValues || !isConnected}
+                    className="w-full py-3 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-2"
+                  >
+                    <IconShieldCheck className="w-5 h-5" />
+                    {!isConnected ? "Connect Wallet to Verify" : "Verify Proof"}
+                  </button>
+                )}
 
-                {proofArtifacts && (
+                {verification.status === "verifying" && (
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <IconLoader2 className="w-5 h-5 animate-spin text-violet-400" />
+                    <span className="text-neutral-300">Waiting for wallet approval...</span>
+                  </div>
+                )}
+
+                {verification.status === "confirming" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-3 py-4">
+                      <IconLoader2 className="w-5 h-5 animate-spin text-emerald-400" />
+                      <span className="text-neutral-300">Confirming transaction...</span>
+                    </div>
+                    {verification.txHash && (
+                      <div className="flex items-center gap-2 justify-center">
+                        <code className="text-xs text-neutral-400 font-mono truncate max-w-xs">
+                          {verification.txHash}
+                        </code>
+                        <a
+                          href={`https://sepolia.etherscan.io/tx/${verification.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 hover:bg-neutral-700 rounded transition-colors"
+                        >
+                          <IconExternalLink className="w-3 h-3 text-neutral-400" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {verification.status === "success" && (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg bg-emerald-950/50 border border-emerald-800/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <IconCheck className="w-5 h-5 text-emerald-400" />
+                        <span className="text-emerald-300 font-medium">Verification Successful!</span>
+                      </div>
+                      <p className="text-sm text-neutral-400 mb-3">
+                        Your tax proof has been verified and recorded on-chain.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-xs text-neutral-300 font-mono flex-1 truncate">
+                          {verification.txHash}
+                        </code>
+                        <a
+                          href={`https://sepolia.etherscan.io/tx/${verification.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 hover:bg-neutral-700 rounded transition-colors"
+                        >
+                          <IconExternalLink className="w-4 h-4 text-neutral-400" />
+                        </a>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={resetVerification}
+                      className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors"
+                    >
+                      Verify Again
+                    </button>
+                  </div>
+                )}
+
+                {verification.status === "error" && (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg bg-red-950/50 border border-red-800/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <IconAlertCircle className="w-5 h-5 text-red-400" />
+                        <span className="text-red-300 font-medium">Verification Failed</span>
+                      </div>
+                      <p className="text-sm text-red-400/80 break-all">{verification.error}</p>
+                    </div>
+
+                    <button
+                      onClick={resetVerification}
+                      className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-600 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                )}
+
+                {proofArtifacts && verification.status === "idle" && (
                   <button
                     onClick={() => setUseManualInput(false)}
                     className="w-full py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white transition-colors"
