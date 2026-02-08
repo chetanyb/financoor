@@ -14,6 +14,6 @@ export const CONTRACTS = {
   profitMachine: "0xB99Db0d6A22eEB129E5AEbb4C94e46Cb1640f465" as const,
   lossMachine: "0x754F565155B363F94657Ac7E106e361297CD6ebE" as const,
   yieldFarm: "0xfD3e2E9DB59B9611FA14560C79316f6ce6714F9B" as const,
-  taxVerifier: "0x5009Bc72A4630A8f34E1EB63bc59Eedd7a2000C7" as const,
+  taxVerifier: "0x8c81478a58Ff90B5FB8DC6b61D39965353F857e2" as const,
   sp1Verifier: "0x397A5f7f3dBd538f23DE225B51f532c34448dA9B" as const,
 } as const;

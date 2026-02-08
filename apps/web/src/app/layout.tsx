@@ -17,6 +17,12 @@ export const metadata: Metadata = {
   title: "Financoor - Prove your taxes with privacy",
   description:
     "Analyze on-chain activity, calculate tax liability under Indian law, and generate ZK proofs that verify calculations without revealing financial data.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico" },
+    ],
+  },
 };
 
 export default function RootLayout({
