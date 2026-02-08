@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { FloatingDock } from "@/components/ui/floating-dock";
+import { FileUpload } from "@/components/ui/file-upload";
 import { useSession } from "@/lib/session";
 import { taxVerifierConfig } from "@/lib/contracts";
 import { CONTRACTS } from "@/lib/wagmi";
@@ -20,7 +21,6 @@ import {
   IconUpload,
   IconWallet,
   IconDownload,
-  IconFileUpload,
 } from "@tabler/icons-react";
 import Link from "next/link";
 
@@ -142,11 +142,15 @@ export default function VerifyPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Handle file upload
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // Handle file upload (from FileUpload component)
+  const handleFileUpload = (files: File[]) => {
+    if (files.length === 0) {
+      setManualProof("");
+      setManualPublicValues("");
+      return;
+    }
 
+    const file = files[0];
     setUploadError(null);
 
     const reader = new FileReader();
@@ -525,35 +529,18 @@ export default function VerifyPage() {
 
               <div className="space-y-4">
                 {/* File Upload */}
-                <div>
-                  <label className="block text-sm text-neutral-400 mb-2">
-                    Upload Proof File
-                  </label>
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-neutral-700 rounded-lg cursor-pointer bg-neutral-800/50 hover:bg-neutral-800 hover:border-neutral-600 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <IconFileUpload className="w-8 h-8 mb-2 text-neutral-500" />
-                      <p className="mb-1 text-sm text-neutral-400">
-                        <span className="font-medium text-blue-400">Click to upload</span> or drag and drop
-                      </p>
-                      <p className="text-xs text-neutral-500">JSON proof file (.json)</p>
-                    </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".json,application/json"
-                      onChange={handleFileUpload}
-                    />
-                  </label>
-                  {uploadError && (
-                    <p className="mt-2 text-sm text-red-400">{uploadError}</p>
-                  )}
-                  {manualProof && manualPublicValues && (
-                    <p className="mt-2 text-sm text-emerald-400 flex items-center gap-1">
-                      <IconCheck className="w-4 h-4" />
-                      Proof file loaded successfully
-                    </p>
-                  )}
+                <div className="w-full border border-dashed bg-white dark:bg-black border-neutral-200 dark:border-neutral-800 rounded-lg">
+                  <FileUpload onChange={handleFileUpload} />
                 </div>
+                {uploadError && (
+                  <p className="text-sm text-red-400">{uploadError}</p>
+                )}
+                {manualProof && manualPublicValues && !uploadError && (
+                  <p className="text-sm text-emerald-400 flex items-center gap-1">
+                    <IconCheck className="w-4 h-4" />
+                    Proof file loaded and parsed successfully
+                  </p>
+                )}
 
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-px bg-neutral-700" />
